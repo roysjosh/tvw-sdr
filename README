@@ -1,0 +1,25 @@
+tvw-sdr by Joshua Roys <roysjosh@gmail.com>
+
+  git://github.com/roysjosh/tvw-sdr.git
+https://github.com/roysjosh/tvw-sdr
+
+Userspace driver for TVW750 devices (currently only the TVW750USB, but should
+be easy to get the PCI version working).
+
+In order to generate easily readable packet traces, use the provided XSL:
+* capture a trace under Wireshark
+* File -> Export -> as XML - "PDML" (packet details) file...
+* $ xsltproc -o cap.txt docs/ati_wireshark.xsl cap.xml
+* $ sed -i -e '/^[RW] | $/ d' cap.txt
+* $ perl docs/ati-readable.pl cap.txt > cap-readable.txt
+* $ perl docs/ati-array.pl cap.txt > cap-array.txt
+
+The firmware files will not be hosted in this repo until I receive permission
+from ATI/Broadcom/whoever owns the rights to them.  To generate the first one,
+or at least a version of the first one, do the following:
+* download the Windows driver
+* find CTRL.s3, CTRLT506.s3, CTRLT507.s3, CTRLT511.s3
+* for s3 in *.s3 ; do ( base=`basename $s3 .s3` ; objcopy -I srec -O binary $s3 $base.bin ) ; done
+
+There is a second blob uploaded later in the process which I haven't found the
+source to as of yet.  You can, however, extract it from a packet trace.
