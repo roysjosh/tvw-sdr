@@ -1772,6 +1772,12 @@ init_tvw() {
 
 	/* SPI? */
 
+	/* switch to bAlternateSetting 1 */
+	if (libusb_set_interface_alt_setting(devh, 0, 1)) {
+		printf("failed to set alternate setting 1\n");
+		return -1;
+	}
+
 	ret = tvwsdr_run_reg_cmds(tvw_init3);
 	if (ret) {
 		printf("failed to init(3) device: %i\n", ret);
