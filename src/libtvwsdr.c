@@ -1808,6 +1808,8 @@ init_tvw() {
 		return -1;
 	}
 
+	sleep(1);
+
 	if (tvwsdr_read_reg(0xe010, 0x1000, buf, 16)) {
 		printf("failed to read 0xe010\n");
 		return -1;
