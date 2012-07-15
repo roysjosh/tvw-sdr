@@ -42,6 +42,8 @@ enum tvwsdr_reg_op {
 	REG_AND,
 	REG_OR,
 
+	REG_SLEEP,
+
 	MAX_REG_OP,
 };
 
@@ -797,6 +799,15 @@ struct tvwsdr_reg_cmd tvw_init2[] = {
 	{ .op = MAX_REG_OP },
 };
 
+/* Register 0x4400 appears to be some sort of communication with a micro.
+ * To read something from it, write 0x40XXYYZZ to 0x4400 where XXYY is the
+ * register (which seems to start at 0xf000) and ZZ is 0x00.  Then, read
+ * from 0x4400.  XXYY will be the same data written previously, but ZZ will
+ * be the register's contents.
+ * To write something, write 0x80XXYYZZ where XXYY is as before, but ZZ is
+ * the data to write.
+ */
+
 struct tvwsdr_reg_cmd tvw_init3[] = {
 	{ REG_READ,  0x0224, 0x2000, 0x0c000000 },
 	{ REG_WRITE, 0x0224, 0x2000, 0x0c000000 },
@@ -867,6 +878,7 @@ struct tvwsdr_reg_cmd tvw_init3[] = {
 	{ REG_READ,  0x4400, 0x2000, 0x8089f040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x8089f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009df080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009ef080 },
@@ -894,6 +906,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x002af080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009ff040 },
 	{ REG_READ,  0x4400, 0x2000, 0x009ff040 },
+	/* 0x8e1a is T507.bin fw size */
 	{ REG_WRITE, 0x4400, 0x2000, 0x8ea0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x1aa1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0xefa2f080 },
@@ -902,6 +915,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x0089f040 },
 	{ REG_READ,  0x4400, 0x2000, 0x8089f040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x0089f080 },
+	{ REG_SLEEP,      0,      0,        100 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0xbc9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -927,6 +941,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x0ca0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -937,6 +952,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x0da0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -947,6 +963,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x0ea0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -957,6 +974,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x0fa0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -967,6 +985,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x10a0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -977,6 +996,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x11a0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -987,6 +1007,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x12a0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -997,6 +1018,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x13a0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1007,6 +1029,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x14a0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1017,6 +1040,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x15a0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1027,6 +1051,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x16a0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1037,6 +1062,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x17a0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1047,6 +1073,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x18a0f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1059,6 +1086,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0xc2a2f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x60a3f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1071,6 +1099,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0xc2a2f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x60a3f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1083,6 +1112,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0xc2a2f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x60a3f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1107,6 +1137,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0xc3aef080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x04aff080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1125,6 +1156,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0xc3a8f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a9f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1137,6 +1169,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0xc2a2f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x60a3f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1161,6 +1194,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0xc3aef080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x04aff080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1179,6 +1213,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0xc3a8f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a9f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1191,6 +1226,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0xc2a2f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x60a3f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1215,6 +1251,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0xc3aef080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x04aff080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1233,6 +1270,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0xc3a8f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a9f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1252,6 +1290,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x18a9f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x6aaaf080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1328,6 +1367,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x9ba3f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a4f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9a9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9a9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1349,6 +1389,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x02a1f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x00a2f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x9c9ff080 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf040 },
 	{ REG_READ,  0x4400, 0x2000, 0x9c9cf040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x009cf080 },
@@ -1377,6 +1418,7 @@ struct tvwsdr_reg_cmd tvw_init4[] = {
 	{ REG_WRITE, 0x4400, 0x2000, 0x4480f480 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x8090f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x0091f040 },
+	{ REG_SLEEP,      0,      0,         10 },
 	{ REG_READ,  0x4400, 0x2000, 0x8091f040 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x0163f080 },
 	{ REG_WRITE, 0x4400, 0x2000, 0x0401f180 },
@@ -1456,6 +1498,16 @@ struct tvwsdr_reg_cmd tvw_init6[] = {
 
 	{ .op = MAX_REG_OP },
 }; // ati_00.pcap 35902
+
+void
+tvwsdr_msleep(int msecs) {
+	struct timespec ts;
+
+	ts.tv_sec = 0;
+	ts.tv_nsec = msecs * 1000 * 1000;
+
+	nanosleep(&ts, NULL);
+}
 
 int
 tvwsdr_read_reg(uint16_t reg, uint16_t page, void *buf, uint16_t len) {
@@ -1574,6 +1626,10 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 			}
 			printf("W %04x/%04x %08x\n",
 				cmds[off].reg, cmds[off].page, cmds[off].val);
+			break;
+
+		case REG_SLEEP:
+			tvwsdr_msleep(cmds[off].val);
 			break;
 
 		default:
@@ -1801,6 +1857,7 @@ init_tvw() {
 	buf[0] = 0x13;
 	buf[1] = 0x01;
 	buf[4] = 0x01;
+	/* 0x8e1a is T507.bin fw size */
 	buf[6] = 0x1a;
 	buf[7] = 0x8e;
 	if (tvwsdr_write_reg(0xe000, 0x1000, buf, 16)) {
