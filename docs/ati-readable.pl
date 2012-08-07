@@ -35,7 +35,7 @@ foreach(<ARGV>) {
 		}
 	}
 	elsif ($state == STATE_REG_RW) {
-		print " " . join(':', @bytes) . "\n";
+		print " " . join(':', reverse(@bytes)) . "\n";
 		$state = STATE_SPECIFY;
 	}
 }
