@@ -31,9 +31,12 @@
 
 #include <libusb.h>
 
+#include "libtvwsdr.h"
+
 #define BULK_TIMEOUT 0
 
 static struct libusb_device_handle *devh = NULL;
+unsigned char tda_regs[TDA18271_NUM_REGS];
 
 enum tvwsdr_reg_op {
 	REG_READ,
@@ -1458,6 +1461,25 @@ tvwsdr_write_reg(uint16_t reg, uint16_t page, void *buf, uint16_t len) {
 	return ret;
 }
 
+int
+tvwsdr_wait_bits(uint16_t reg, uint16_t page, uint32_t mask, uint32_t val, int msec, int loop) {
+	int count;
+	uint32_t rval;
+
+	for(count = 0; count < loop; count++) {
+		if (tvwsdr_read_reg(reg, page, &rval, sizeof(rval))) {
+			return -1;
+		}
+		rval = le32toh(rval);
+		if ((rval & mask) == val) {
+			return 0;
+		}
+		tvwsdr_msleep(msec);
+	}
+
+	return -1;
+}
+
 void
 dump_regs(uint16_t page, uint16_t start, uint16_t span) {
 	uint16_t i, reg, regmax;
@@ -1670,17 +1692,8 @@ tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len) {
 		return -1;
 	}
 
-	/* wait for a bit to clear */
-	for(count = 0; count < 100; count++) {
-		if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
-			return -1;
-		}
-		if ((ctrl[1] & 0x10) == 0x00) {
-			break;
-		}
-	}
-	if (count == 100) {
-		printf("timed out waiting for i2c ready bit to clear\n");
+	/* wait for i2c ready? */
+	if (tvwsdr_wait_bits(0x03e0, 0x2000, 0x1000, 0, 10, 100)) {
 		return -1;
 	}
 
@@ -1694,11 +1707,405 @@ tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len) {
 	return 0;
 }
 
-/*
 int
-tvwsdr_write_i2c() {
+tvwsdr_write_i2c(unsigned char *wrbuf, uint8_t len) {
+	uint8_t addr, count;
+	unsigned char ctrl[4], tmpbuf[4];
+
+	/* address discovery? */
+	ctrl[0] = 0xe7;
+	ctrl[1] = 0x01;
+	ctrl[2] = 0x11;
+	ctrl[3] = 0x08;
+	if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+
+	/* ??? */
+	memset(ctrl, 0, 4);
+	if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+	ctrl[3] = 0x10;
+	if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+
+	/* read discovered address? */
+	if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+	addr = (uint8_t)ctrl[0];
+	if (len <= 29) {
+		ctrl[1] |= 0x02;
+	}
+	if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+
+	/* ??? */
+	if (tvwsdr_read_reg(0x03e4, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+	ctrl[1] = 0x01;
+	if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+	if (tvwsdr_read_reg(0x03e4, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+
+	/* write transaction length */
+	ctrl[0] = (unsigned char)(len > 29 ? 29 : len);
+	if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+
+	/* write chip address */
+	memset(ctrl, 0, 4);
+	ctrl[0] = (unsigned char)addr;
+	if (tvwsdr_write_reg(0x03e8, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+
+	memset(tmpbuf, 0, 4);
+	for(count = 0; count < len; count++) {
+		if (count && count % 29 == 0) {
+			/* ??? */
+			if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			ctrl[1] |= 0x10;
+			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			if (tvwsdr_wait_bits(0x03e0, 0x2000, 0x1000, 0, 10, 100)) {
+				return -1;
+			}
+
+			/* ??? */
+			ctrl[0] |= 0x07;
+			ctrl[1] = 0;
+			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			ctrl[1] |= 0x02;
+			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+
+			/* ??? */
+			if (tvwsdr_read_reg(0x03e4, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			ctrl[1] &= ~0x01;
+			if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			if (tvwsdr_wait_bits(0x03e4, 0x2000, 0x0100, 0, 10, 100)) {
+				return -1;
+			}
+
+			/* write remaining length */
+			ctrl[0] = (unsigned char)(len - count > 29 ? 29 : len - count);
+			if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+		}
+
+		tmpbuf[0] = wrbuf[count];
+		if (tvwsdr_write_reg(0x03e8, 0x2000, tmpbuf, 4)) {
+			return -1;
+		}
+	}
+
+	/* ??? */
+	if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+	ctrl[1] |= 0x10;
+	if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+		return -1;
+	}
+	/* wait for i2c ready? */
+	if (tvwsdr_wait_bits(0x03e0, 0x2000, 0x1000, 0, 10, 100)) {
+		return -1;
+	}
+
+	return 0;
 }
-*/
+
+/* This function takes advantage of the fact that subaddress 0 is never written.
+ * Instead, the array position before the desired subaddress is swapped out with
+ * the subaddress value and written according to the datasheet.  Afterwards, the
+ * old value is restored.
+ */
+int
+tvwsdr_write_tda18271(unsigned char *wrbuf, uint8_t startaddr, uint8_t endaddr) {
+	int ret;
+	uint8_t len;
+	unsigned char tmp;
+
+	len = endaddr - startaddr + 1;
+
+	tmp = wrbuf[startaddr - 1];
+	wrbuf[startaddr - 1] = (unsigned char)startaddr;
+	ret = tvwsdr_write_i2c(wrbuf + startaddr - 1, len + 1);
+	wrbuf[startaddr - 1] = tmp;
+
+	return ret;
+}
+
+int
+TDA18271MSPOR() {
+	return 0;
+}
+
+int
+TDA18271CalcRFFilterCurve() {
+	return 0;
+}
+
+int
+TDA18271FixedContentsI2Cupdate() {
+	tda_regs[TDA18271_ID] = 0x84;
+	tda_regs[TDA18271_TM] = 0x08;
+	tda_regs[TDA18271_PL] = 0x80;
+	tda_regs[TDA18271_EP1] = 0xc6;
+	tda_regs[TDA18271_EP2] = 0xdf;
+	tda_regs[TDA18271_EP3] = 0x16;
+	tda_regs[TDA18271_EP4] = 0x60;
+	tda_regs[TDA18271_EP5] = 0x80;
+	tda_regs[TDA18271_CPD] = 0x80;
+	tda_regs[TDA18271_CD1] = 0x00;
+	tda_regs[TDA18271_CD2] = 0x00;
+	tda_regs[TDA18271_CD3] = 0x00;
+	tda_regs[TDA18271_MPD] = 0x00;
+	tda_regs[TDA18271_MD1] = 0x00;
+	tda_regs[TDA18271_MD2] = 0x00;
+	tda_regs[TDA18271_MD3] = 0x00;
+	tda_regs[TDA18271_EB1] = 0xfc;
+	tda_regs[TDA18271_EB2] = 0x01;
+	tda_regs[TDA18271_EB3] = 0x84;
+	tda_regs[TDA18271_EB4] = 0x41;
+	tda_regs[TDA18271_EB5] = 0x01;
+	tda_regs[TDA18271_EB6] = 0x84;
+	tda_regs[TDA18271_EB7] = 0x40;
+	tda_regs[TDA18271_EB8] = 0x07;
+	tda_regs[TDA18271_EB9] = 0x00;
+	tda_regs[TDA18271_EB10] = 0x00;
+	tda_regs[TDA18271_EB11] = 0x96;
+	tda_regs[TDA18271_EB12] = 0x33;
+	tda_regs[TDA18271_EB13] = 0xc1;
+	tda_regs[TDA18271_EB14] = 0x00;
+	tda_regs[TDA18271_EB15] = 0x8f;
+	tda_regs[TDA18271_EB16] = 0x00;
+	tda_regs[TDA18271_EB17] = 0x00;
+	tda_regs[TDA18271_EB18] = 0x8c;
+	tda_regs[TDA18271_EB19] = 0x00;
+	tda_regs[TDA18271_EB20] = 0x20;
+	tda_regs[TDA18271_EB21] = 0xb3;
+	tda_regs[TDA18271_EB22] = 0x48;
+	tda_regs[TDA18271_EB23] = 0xb0;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_TM, TDA18271_EB23)) {
+		return -1;
+	}
+
+	/* AGC1 gain setup */
+	tda_regs[TDA18271_EB17] = 0x00;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EB17, TDA18271_EB17)) {
+		return -1;
+	}
+
+	tda_regs[TDA18271_EB17] = 0x03;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EB17, TDA18271_EB17)) {
+		return -1;
+	}
+
+	tda_regs[TDA18271_EB17] = 0x43;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EB17, TDA18271_EB17)) {
+		return -1;
+	}
+
+	tda_regs[TDA18271_EB17] = 0x4c;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EB17, TDA18271_EB17)) {
+		return -1;
+	}
+
+	/* IRCAL low band initialization */
+	tda_regs[TDA18271_EP3] = 0x1f;
+	tda_regs[TDA18271_EP4] = 0x66;
+	tda_regs[TDA18271_EP5] = 0x81;
+	tda_regs[TDA18271_CPD] = 0xcc;
+	tda_regs[TDA18271_CD1] = 0x6c;
+	tda_regs[TDA18271_CD2] = 0x00;
+	tda_regs[TDA18271_CD3] = 0x00;
+	tda_regs[TDA18271_MPD] = 0xcd;
+	tda_regs[TDA18271_MD1] = 0x77;
+	tda_regs[TDA18271_MD2] = 0x08;
+	tda_regs[TDA18271_MD3] = 0x00;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP3, TDA18271_MD3)) {
+		return -1;
+	}
+
+	/* MAIN PLL CP source on */
+	tda_regs[TDA18271_EB4] = 0x61;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EB4, TDA18271_EB4)) {
+		return -1;
+	}
+	tvwsdr_msleep(1);
+
+	/* MAIN PLL CP source off */
+	tda_regs[TDA18271_EB4] = 0x41;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EB4, TDA18271_EB4)) {
+		return -1;
+	}
+
+	/* PLL locking */
+	tvwsdr_msleep(5);
+
+	/* Launch detector */
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP1, TDA18271_EP1)) {
+		return -1;
+	}
+
+	/* measurement */
+	tvwsdr_msleep(5);
+
+	/* CAL PLL update */
+	tda_regs[TDA18271_EP5] = 0x85;
+	tda_regs[TDA18271_CPD] = 0xcb;
+	tda_regs[TDA18271_CD1] = 0x66;
+	tda_regs[TDA18271_CD2] = 0x70;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP3, TDA18271_CD3)) {
+		return -1;
+	}
+
+	/* PLL locking */
+	tvwsdr_msleep(5);
+
+	/* Launch optimization algorithm */
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP2, TDA18271_EP2)) {
+		return -1;
+	}
+
+	/* optimization */
+	tvwsdr_msleep(30);
+
+	/* IRCAL mid band initialization */
+	tda_regs[TDA18271_EP5] = 0x82;
+	tda_regs[TDA18271_CPD] = 0xa8;
+	tda_regs[TDA18271_CD2] = 0x00;
+	tda_regs[TDA18271_MPD] = 0xa9;
+	tda_regs[TDA18271_MD1] = 0x73;
+	tda_regs[TDA18271_MD2] = 0x1a;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP3, TDA18271_MD3)) {
+		return -1;
+	}
+
+	/* PLL locking */
+	tvwsdr_msleep(5);
+
+	/* Launch detector */
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP1, TDA18271_EP1)) {
+		return -1;
+	}
+
+	/* measurement */
+	tvwsdr_msleep(5);
+
+	/* CAL PLL update */
+	tda_regs[TDA18271_EP5] = 0x86;
+	tda_regs[TDA18271_CPD] = 0xa8;
+	tda_regs[TDA18271_CD1] = 0x66;
+	tda_regs[TDA18271_CD2] = 0xa0;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP3, TDA18271_CD3)) {
+		return -1;
+	}
+
+	/* PLL locking */
+	tvwsdr_msleep(5);
+
+	/* Launch optimization algorithm */
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP2, TDA18271_EP2)) {
+		return -1;
+	}
+
+	/* optimization */
+	tvwsdr_msleep(30);
+
+	/* IRCAL high band initialization */
+	tda_regs[TDA18271_EP5] = 0x83;
+	tda_regs[TDA18271_CPD] = 0x98;
+	tda_regs[TDA18271_CD1] = 0x65;
+	tda_regs[TDA18271_CD2] = 0x00;
+	tda_regs[TDA18271_MPD] = 0x99;
+	tda_regs[TDA18271_MD1] = 0x71;
+	tda_regs[TDA18271_MD2] = 0xcd;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP3, TDA18271_MD3)) {
+		return -1;
+	}
+
+	/* PLL locking */
+	tvwsdr_msleep(5);
+
+	/* Launch detector */
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP1, TDA18271_EP1)) {
+		return -1;
+	}
+
+	/* measurement */
+	tvwsdr_msleep(5);
+
+	/* CAL PLL update */
+	tda_regs[TDA18271_EP5] = 0x87;
+	tda_regs[TDA18271_CD1] = 0x65;
+	tda_regs[TDA18271_CD2] = 0x50;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP3, TDA18271_CD3)) {
+		return -1;
+	}
+
+	/* PLL locking */
+	tvwsdr_msleep(5);
+
+	/* Launch optimization algorithm */
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP2, TDA18271_EP2)) {
+		return -1;
+	}
+
+	/* optimization */
+	tvwsdr_msleep(30);
+
+	/* Back to normal mode */
+	tda_regs[TDA18271_EP4] = 0x64;
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP4, TDA18271_EP4)) {
+		return -1;
+	}
+
+	/* Synchronization */
+	if (tvwsdr_write_tda18271(tda_regs, TDA18271_EP1, TDA18271_EP1)) {
+		return -1;
+	}
+
+	return 0;
+}
+
+int
+TDA18271InitCal() {
+	if (TDA18271FixedContentsI2Cupdate()) {
+		return -1;
+	}
+	if (TDA18271CalcRFFilterCurve()) {
+		return -1;
+	}
+	if (TDA18271MSPOR()) {
+		return -1;
+	}
+	return 0;
+}
 
 int
 init_tvw() {
@@ -1706,12 +2113,14 @@ init_tvw() {
 	unsigned char buf[16];
 	unsigned int i;
 
+	printf("Running init 1...\n");
 	ret = tvwsdr_run_reg_cmds(tvw_init1);
 	if (ret) {
 		printf("failed to init(1) device: %i\n", ret);
 		return -1;
 	}
 
+	printf("Uploading first firmware...\n");
 	ret = tvwsdr_load_fw("CTRLT507-fixed.bin");
 	if (ret) {
 		printf("failed to load firmware\n");
@@ -1733,6 +2142,7 @@ init_tvw() {
 		return -1;
 	}
 
+	printf("Running init 2...\n");
 	ret = tvwsdr_run_reg_cmds(tvw_init2);
 	if (ret) {
 		printf("failed to init(2) device: %i\n", ret);
@@ -1747,12 +2157,14 @@ init_tvw() {
 		return -1;
 	}
 
+	printf("Running init 3...\n");
 	ret = tvwsdr_run_reg_cmds(tvw_init3);
 	if (ret) {
 		printf("failed to init(3) device: %i\n", ret);
 		return -1;
 	}
 
+	printf("Uploading second firmware...\n");
 	ret = tvwsdr_load_fw("T507.bin");
 	if (ret) {
 		printf("failed to load firmware\n");
@@ -1785,6 +2197,7 @@ init_tvw() {
 		return -1;
 	}
 
+	printf("Running init 4...\n");
 	ret = tvwsdr_run_reg_cmds(tvw_init4);
 	if (ret) {
 		printf("failed to init(4) device: %i\n", ret);
@@ -1792,6 +2205,19 @@ init_tvw() {
 	}
 
 	/* tuner config over I2C */
+	printf("Configuring tuner...\n");
+	if (tvwsdr_read_i2c(buf, sizeof(buf))) {
+		printf("failed to read i2c data\n");
+		return -1;
+	}
+	for(i = 0; i < sizeof(buf); i++) {
+		printf("i2c[0x%02x] = 0x%02x\n", i, buf[i]);
+	}
+	if (buf[0] != 0x84) {
+		printf("Unknown tuner, ID byte: 0x%02x\n", buf[0]);
+		return -1;
+	}
+	TDA18271InitCal();
 	if (tvwsdr_read_i2c(buf, sizeof(buf))) {
 		printf("failed to read i2c data\n");
 		return -1;
@@ -1800,6 +2226,7 @@ init_tvw() {
 		printf("i2c[0x%02x] = 0x%02x\n", i, buf[i]);
 	}
 
+	printf("Running init 5...\n");
 	ret = tvwsdr_run_reg_cmds(tvw_init5);
 	if (ret) {
 		printf("failed to init(5) device: %i\n", ret);
@@ -1832,6 +2259,7 @@ init_tvw() {
 		return -1;
 	}
 
+	printf("Running init 6...\n");
 	ret = tvwsdr_run_reg_cmds(tvw_init6);
 	if (ret) {
 		printf("failed to init(6) device: %i\n", ret);
