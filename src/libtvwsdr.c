@@ -1669,7 +1669,7 @@ tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len) {
 	}
 
 	/* write transaction length */
-	ctrl[0] = (unsigned char)len;
+	ctrl[0] = (unsigned char)(len > 30 ? 30 : len);
 	ctrl[1] = 0x01;
 	ctrl[2] = 0x00;
 	ctrl[3] = 0x10;
@@ -1698,6 +1698,56 @@ tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len) {
 	}
 
 	for(count = 0; count < len; count++) {
+		if (count && count % 30 == 0) {
+			/* ??? */
+			if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			ctrl[1] &= ~0x01;
+			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			if (tvwsdr_wait_bits(0x03e0, 0x2000, 0x01, 0, 10, 100)) {
+				return -1;
+			}
+
+			/* ??? */
+			ctrl[1] |= 0x02;
+			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+
+			/* ??? */
+			if (tvwsdr_read_reg(0x03e4, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			ctrl[1] &= ~0x01;
+			if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			if (tvwsdr_wait_bits(0x03e4, 0x2000, 0x0100, 0, 10, 100)) {
+				return -1;
+			}
+
+			/* write remaining length */
+			ctrl[0] = (unsigned char)(len - count > 30 ? 30 : len - count);
+			if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+
+			/* ??? */
+			if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			ctrl[1] |= 0x10;
+			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+				return -1;
+			}
+			if (tvwsdr_wait_bits(0x03e0, 0x2000, 0x1000, 0, 10, 100)) {
+				return -1;
+			}
+		}
+
 		if (tvwsdr_read_reg(0x03e8, 0x2000, tmpbuf, 4)) {
 			return -1;
 		}
@@ -2110,7 +2160,7 @@ TDA18271InitCal() {
 int
 init_tvw() {
 	int ret;
-	unsigned char buf[16];
+	unsigned char buf[39];
 	unsigned int i;
 
 	printf("Running init 1...\n");
