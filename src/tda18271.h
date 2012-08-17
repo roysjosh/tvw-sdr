@@ -21,8 +21,7 @@
 #ifndef __TDA18271_H__
 #define __TDA18271_H__
 
-#include <linux/i2c.h>
-#include "dvb_frontend.h"
+#include "tvwsdr-compat.h"
 
 struct tda18271_std_map_item {
 	u16 if_freq;
@@ -116,19 +115,8 @@ enum tda18271_mode {
 	TDA18271_DIGITAL,
 };
 
-#if defined(CONFIG_MEDIA_TUNER_TDA18271) || (defined(CONFIG_MEDIA_TUNER_TDA18271_MODULE) && defined(MODULE))
 extern struct dvb_frontend *tda18271_attach(struct dvb_frontend *fe, u8 addr,
 					    struct i2c_adapter *i2c,
 					    struct tda18271_config *cfg);
-#else
-static inline struct dvb_frontend *tda18271_attach(struct dvb_frontend *fe,
-						   u8 addr,
-						   struct i2c_adapter *i2c,
-						   struct tda18271_config *cfg)
-{
-	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
-	return NULL;
-}
-#endif
 
 #endif /* __TDA18271_H__ */

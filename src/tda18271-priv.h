@@ -21,10 +21,12 @@
 #ifndef __TDA18271_PRIV_H__
 #define __TDA18271_PRIV_H__
 
+#if 0
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/mutex.h>
 #include "tuner-i2c.h"
+#endif
 #include "tda18271.h"
 
 #define R_ID     0x00	/* ID byte                */
@@ -101,8 +103,10 @@ enum tda18271_ver {
 struct tda18271_priv {
 	unsigned char tda18271_regs[TDA18271_NUM_REGS];
 
+#if 0
 	struct list_head	hybrid_tuner_instance_list;
 	struct tuner_i2c_props	i2c_props;
+#endif
 
 	enum tda18271_mode mode;
 	enum tda18271_role role;
@@ -120,7 +124,9 @@ struct tda18271_priv {
 	struct tda18271_std_map std;
 	struct tda18271_rf_tracking_filter_cal rf_cal_state[8];
 
+#if 0
 	struct mutex lock;
+#endif
 
 	u16 if_freq;
 

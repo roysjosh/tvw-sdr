@@ -20,5 +20,8 @@
 #ifndef LIBTVWSDR_H
 #define LIBTVWSDR_H
 
+void tvwsdr_msleep(int msecs);
+int tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len);
+int tvwsdr_write_i2c(unsigned char *wrbuf, uint8_t len);
 
 #endif

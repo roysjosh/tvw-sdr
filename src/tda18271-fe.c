@@ -18,21 +18,29 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
+#if 0
 #include <linux/delay.h>
+#endif
 #include <linux/videodev2.h>
 #include "tda18271-priv.h"
 
-int tda18271_debug;
+int tda18271_debug = DBG_INFO;
+#if 0
 module_param_named(debug, tda18271_debug, int, 0644);
 MODULE_PARM_DESC(debug, "set debug level "
 		 "(info=1, map=2, reg=4, adv=8, cal=16 (or-able))");
+#endif
 
-static int tda18271_cal_on_startup = -1;
+static int tda18271_cal_on_startup = 1;
+#if 0
 module_param_named(cal, tda18271_cal_on_startup, int, 0644);
 MODULE_PARM_DESC(cal, "perform RF tracking filter calibration on startup");
+#endif
 
+#if 0
 static DEFINE_MUTEX(tda18271_list_mutex);
 static LIST_HEAD(hybrid_tuner_instance_list);
+#endif
 
 /*---------------------------------------------------------------------*/
 
@@ -631,8 +639,10 @@ static int tda18271_rf_tracking_filters_init(struct dvb_frontend *fe, u32 freq)
 			map[i].rf_b2 = (prog_cal[RF2] - prog_tab[RF2]);
 			map[i].rf3   = rf_freq[RF3] / 1000;
 			break;
+#if 0
 		default:
 			BUG();
+#endif
 		}
 	}
 
@@ -824,7 +834,9 @@ static int tda18271_init(struct dvb_frontend *fe)
 	struct tda18271_priv *priv = fe->tuner_priv;
 	int ret;
 
+#if 0
 	mutex_lock(&priv->lock);
+#endif
 
 	/* full power up */
 	ret = tda18271_set_standby_mode(fe, 0, 0, 0);
@@ -839,22 +851,30 @@ static int tda18271_init(struct dvb_frontend *fe)
 	if (priv->id == TDA18271HDC2)
 		tda18271c2_rf_cal_init(fe);
 fail:
+#if 0
 	mutex_unlock(&priv->lock);
+#endif
 
 	return ret;
 }
 
 static int tda18271_sleep(struct dvb_frontend *fe)
 {
+#if 0
 	struct tda18271_priv *priv = fe->tuner_priv;
+#endif
 	int ret;
 
+#if 0
 	mutex_lock(&priv->lock);
+#endif
 
 	/* enter standby mode, with required output features enabled */
 	ret = tda18271_toggle_output(fe, 1);
 
+#if 0
 	mutex_unlock(&priv->lock);
+#endif
 
 	return ret;
 }
@@ -872,6 +892,7 @@ static int tda18271_agc(struct dvb_frontend *fe)
 		if (tda18271_debug & DBG_ADV)
 			tda_dbg("no agc configuration provided\n");
 		break;
+#if 0
 	case 3:
 		/* switch with GPIO of saa713x */
 		tda_dbg("invoking callback\n");
@@ -881,6 +902,7 @@ static int tda18271_agc(struct dvb_frontend *fe)
 					   TDA18271_CALLBACK_CMD_AGC_ENABLE,
 					   priv->mode);
 		break;
+#endif
 	case 1:
 	case 2:
 	default:
@@ -909,7 +931,9 @@ static int tda18271_tune(struct dvb_frontend *fe,
 	if (tda_fail(ret))
 		goto fail;
 
+#if 0
 	mutex_lock(&priv->lock);
+#endif
 
 	switch (priv->id) {
 	case TDA18271HDC1:
@@ -921,13 +945,16 @@ static int tda18271_tune(struct dvb_frontend *fe,
 	}
 	ret = tda18271_channel_configuration(fe, map, freq, bw);
 
+#if 0
 	mutex_unlock(&priv->lock);
+#endif
 fail:
 	return ret;
 }
 
 /* ------------------------------------------------------------------ */
 
+#if 0
 static int tda18271_set_params(struct dvb_frontend *fe)
 {
 	struct dtv_frontend_properties *c = &fe->dtv_property_cache;
@@ -1046,9 +1073,11 @@ static int tda18271_set_analog_params(struct dvb_frontend *fe,
 fail:
 	return ret;
 }
+#endif
 
 static int tda18271_release(struct dvb_frontend *fe)
 {
+#if 0
 	struct tda18271_priv *priv = fe->tuner_priv;
 
 	mutex_lock(&tda18271_list_mutex);
@@ -1057,6 +1086,7 @@ static int tda18271_release(struct dvb_frontend *fe)
 		hybrid_tuner_release_state(priv);
 
 	mutex_unlock(&tda18271_list_mutex);
+#endif
 
 	fe->tuner_priv = NULL;
 
@@ -1160,9 +1190,13 @@ static int tda18271_get_id(struct dvb_frontend *fe)
 	unsigned char *regs = priv->tda18271_regs;
 	char *name;
 
+#if 0
 	mutex_lock(&priv->lock);
+#endif
 	tda18271_read_regs(fe);
+#if 0
 	mutex_unlock(&priv->lock);
+#endif
 
 	switch (regs[R_ID] & 0x7f) {
 	case 3:
@@ -1174,14 +1208,21 @@ static int tda18271_get_id(struct dvb_frontend *fe)
 		priv->id = TDA18271HDC2;
 		break;
 	default:
+		tda_info("Unknown device (%i) detected, device not supported.\n",
+			 regs[R_ID]);
+#if 0
 		tda_info("Unknown device (%i) detected @ %d-%04x, device not supported.\n",
 			 regs[R_ID], i2c_adapter_id(priv->i2c_props.adap),
 			 priv->i2c_props.addr);
+#endif
 		return -EINVAL;
 	}
 
+	tda_info("%s detected\n", name);
+#if 0
 	tda_info("%s detected @ %d-%04x\n", name,
 		 i2c_adapter_id(priv->i2c_props.adap), priv->i2c_props.addr);
+#endif
 
 	return 0;
 }
@@ -1228,6 +1269,7 @@ static int tda18271_set_config(struct dvb_frontend *fe, void *priv_cfg)
 	return 0;
 }
 
+#if 0
 static const struct dvb_tuner_ops tda18271_tuner_ops = {
 	.info = {
 		.name = "NXP TDA18271HD",
@@ -1245,6 +1287,7 @@ static const struct dvb_tuner_ops tda18271_tuner_ops = {
 	.get_bandwidth     = tda18271_get_bandwidth,
 	.get_if_frequency  = tda18271_get_if_frequency,
 };
+#endif
 
 struct dvb_frontend *tda18271_attach(struct dvb_frontend *fe, u8 addr,
 				     struct i2c_adapter *i2c,
@@ -1253,11 +1296,15 @@ struct dvb_frontend *tda18271_attach(struct dvb_frontend *fe, u8 addr,
 	struct tda18271_priv *priv = NULL;
 	int instance, ret;
 
+	priv = malloc(sizeof(struct tda18271_priv));
+	instance = (priv ? 1 : 0);
+#if 0
 	mutex_lock(&tda18271_list_mutex);
 
 	instance = hybrid_tuner_request_state(struct tda18271_priv, priv,
 					      hybrid_tuner_instance_list,
 					      i2c, addr, "tda18271");
+#endif
 	switch (instance) {
 	case 0:
 		goto fail;
@@ -1268,7 +1315,9 @@ struct dvb_frontend *tda18271_attach(struct dvb_frontend *fe, u8 addr,
 		tda18271_setup_configuration(fe, cfg);
 
 		priv->cal_initialized = false;
+#if 0
 		mutex_init(&priv->lock);
+#endif
 
 		ret = tda18271_get_id(fe);
 		if (tda_fail(ret))
@@ -1278,14 +1327,18 @@ struct dvb_frontend *tda18271_attach(struct dvb_frontend *fe, u8 addr,
 		if (tda_fail(ret))
 			goto fail;
 
+#if 0
 		mutex_lock(&priv->lock);
+#endif
 		tda18271_init_regs(fe);
 
 		if ((tda18271_need_cal_on_startup(cfg)) &&
 		    (priv->id == TDA18271HDC2))
 			tda18271c2_rf_cal_init(fe);
 
+#if 0
 		mutex_unlock(&priv->lock);
+#endif
 		break;
 	default:
 		/* existing tuner instance */
@@ -1315,26 +1368,34 @@ struct dvb_frontend *tda18271_attach(struct dvb_frontend *fe, u8 addr,
 	if ((cfg) && (cfg->std_map))
 		tda18271_update_std_map(fe, cfg->std_map);
 
+#if 0
 	mutex_unlock(&tda18271_list_mutex);
+#endif
 
+#if 0
 	memcpy(&fe->ops.tuner_ops, &tda18271_tuner_ops,
 	       sizeof(struct dvb_tuner_ops));
+#endif
 
 	if (tda18271_debug & (DBG_MAP | DBG_ADV))
 		tda18271_dump_std_map(fe);
 
 	return fe;
 fail:
+#if 0
 	mutex_unlock(&tda18271_list_mutex);
+#endif
 
 	tda18271_release(fe);
 	return NULL;
 }
+#if 0
 EXPORT_SYMBOL_GPL(tda18271_attach);
 MODULE_DESCRIPTION("NXP TDA18271HD analog / digital tuner driver");
 MODULE_AUTHOR("Michael Krufky <mkrufky@linuxtv.org>");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("0.4");
+#endif
 
 /*
  * Overrides for Emacs so that we follow Linus's tabbing style.

@@ -20,6 +20,7 @@
 
 #include "tda18271-priv.h"
 
+#if 0
 static int tda18271_i2c_gate_ctrl(struct dvb_frontend *fe, int enable)
 {
 	struct tda18271_priv *priv = fe->tuner_priv;
@@ -60,6 +61,7 @@ static int tda18271_i2c_gate_ctrl(struct dvb_frontend *fe, int enable)
 
 	return ret;
 };
+#endif
 
 /*---------------------------------------------------------------------*/
 
@@ -122,29 +124,18 @@ int tda18271_read_regs(struct dvb_frontend *fe)
 {
 	struct tda18271_priv *priv = fe->tuner_priv;
 	unsigned char *regs = priv->tda18271_regs;
-	unsigned char buf = 0x00;
 	int ret;
-	struct i2c_msg msg[] = {
-		{ .addr = priv->i2c_props.addr, .flags = 0,
-		  .buf = &buf, .len = 1 },
-		{ .addr = priv->i2c_props.addr, .flags = I2C_M_RD,
-		  .buf = regs, .len = 16 }
-	};
-
-	tda18271_i2c_gate_ctrl(fe, 1);
 
 	/* read all registers */
-	ret = i2c_transfer(priv->i2c_props.adap, msg, 2);
+	ret = tvwsdr_read_i2c(regs, 16);
 
-	tda18271_i2c_gate_ctrl(fe, 0);
-
-	if (ret != 2)
+	if (ret)
 		tda_err("ERROR: i2c_transfer returned: %d\n", ret);
 
 	if (tda18271_debug & DBG_REG)
 		tda18271_dump_regs(fe, 0);
 
-	return (ret == 2 ? 0 : ret);
+	return ret;
 }
 
 int tda18271_read_extended(struct dvb_frontend *fe)
@@ -152,23 +143,12 @@ int tda18271_read_extended(struct dvb_frontend *fe)
 	struct tda18271_priv *priv = fe->tuner_priv;
 	unsigned char *regs = priv->tda18271_regs;
 	unsigned char regdump[TDA18271_NUM_REGS];
-	unsigned char buf = 0x00;
 	int ret, i;
-	struct i2c_msg msg[] = {
-		{ .addr = priv->i2c_props.addr, .flags = 0,
-		  .buf = &buf, .len = 1 },
-		{ .addr = priv->i2c_props.addr, .flags = I2C_M_RD,
-		  .buf = regdump, .len = TDA18271_NUM_REGS }
-	};
-
-	tda18271_i2c_gate_ctrl(fe, 1);
 
 	/* read all registers */
-	ret = i2c_transfer(priv->i2c_props.adap, msg, 2);
+	ret = tvwsdr_read_i2c(regdump, 39);
 
-	tda18271_i2c_gate_ctrl(fe, 0);
-
-	if (ret != 2)
+	if (ret)
 		tda_err("ERROR: i2c_transfer returned: %d\n", ret);
 
 	for (i = 0; i < TDA18271_NUM_REGS; i++) {
@@ -184,7 +164,7 @@ int tda18271_read_extended(struct dvb_frontend *fe)
 	if (tda18271_debug & DBG_REG)
 		tda18271_dump_regs(fe, 1);
 
-	return (ret == 2 ? 0 : ret);
+	return ret;
 }
 
 int tda18271_write_regs(struct dvb_frontend *fe, int idx, int len)
@@ -192,54 +172,21 @@ int tda18271_write_regs(struct dvb_frontend *fe, int idx, int len)
 	struct tda18271_priv *priv = fe->tuner_priv;
 	unsigned char *regs = priv->tda18271_regs;
 	unsigned char buf[TDA18271_NUM_REGS + 1];
-	struct i2c_msg msg = { .addr = priv->i2c_props.addr, .flags = 0,
-			       .buf = buf };
-	int i, ret = 1, max;
+	int i, ret = 1;
 
-	BUG_ON((len == 0) || (idx + len > sizeof(buf)));
+	buf[0] = idx;
+	for (i = 1; i <= len; i++)
+		buf[i] = regs[idx - 1 + i];
 
+	/* write registers */
+	ret = tvwsdr_write_i2c(buf, len + 1);
 
-	switch (priv->small_i2c) {
-	case TDA18271_03_BYTE_CHUNK_INIT:
-		max = 3;
-		break;
-	case TDA18271_08_BYTE_CHUNK_INIT:
-		max = 8;
-		break;
-	case TDA18271_16_BYTE_CHUNK_INIT:
-		max = 16;
-		break;
-	case TDA18271_39_BYTE_CHUNK_INIT:
-	default:
-		max = 39;
-	}
-
-	tda18271_i2c_gate_ctrl(fe, 1);
-	while (len) {
-		if (max > len)
-			max = len;
-
-		buf[0] = idx;
-		for (i = 1; i <= max; i++)
-			buf[i] = regs[idx - 1 + i];
-
-		msg.len = max + 1;
-
-		/* write registers */
-		ret = i2c_transfer(priv->i2c_props.adap, &msg, 1);
-		if (ret != 1)
-			break;
-
-		idx += max;
-		len -= max;
-	}
-	tda18271_i2c_gate_ctrl(fe, 0);
-
-	if (ret != 1)
+	if (ret) {
 		tda_err("ERROR: idx = 0x%x, len = %d, "
-			"i2c_transfer returned: %d\n", idx, max, ret);
+			"i2c_transfer returned: %d\n", idx, len, ret);
+	}
 
-	return (ret == 1 ? 0 : ret);
+	return ret;
 }
 
 /*---------------------------------------------------------------------*/
@@ -263,9 +210,12 @@ int tda18271_init_regs(struct dvb_frontend *fe)
 	struct tda18271_priv *priv = fe->tuner_priv;
 	unsigned char *regs = priv->tda18271_regs;
 
+	tda_dbg("initializing registers\n");
+#if 0
 	tda_dbg("initializing registers for device @ %d-%04x\n",
 		i2c_adapter_id(priv->i2c_props.adap),
 		priv->i2c_props.addr);
+#endif
 
 	/* initialize registers */
 	switch (priv->id) {
@@ -679,12 +629,18 @@ fail:
 int _tda_printk(struct tda18271_priv *state, const char *level,
 		const char *func, const char *fmt, ...)
 {
+#if 0
 	struct va_format vaf;
+#endif
 	va_list args;
 	int rtn;
 
 	va_start(args, fmt);
 
+	printf("%s: ", func);
+	rtn = vprintf(fmt, args);
+
+#if 0
 	vaf.fmt = fmt;
 	vaf.va = &args;
 
@@ -696,6 +652,7 @@ int _tda_printk(struct tda18271_priv *state, const char *level,
 			     &vaf);
 	else
 		rtn = printk("%s%s: %pV", level, func, &vaf);
+#endif
 
 	va_end(args);
 

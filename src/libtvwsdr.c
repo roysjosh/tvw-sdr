@@ -32,10 +32,13 @@
 #include <libusb.h>
 
 #include "libtvwsdr.h"
+#include "tda18271.h"
+#include "tvwsdr-compat.h"
 
 #define BULK_TIMEOUT 0
 
 static struct libusb_device_handle *devh = NULL;
+static struct dvb_frontend fe;
 
 enum tvwsdr_reg_op {
 	REG_READ,
@@ -2007,6 +2010,7 @@ init_tvw() {
 
 	/* tuner config over I2C */
 	printf("Configuring tuner...\n");
+	tda18271_attach(&fe, 0, NULL, NULL);
 	if (tvwsdr_read_i2c(buf, sizeof(buf))) {
 		printf("failed to read i2c data\n");
 		return -1;

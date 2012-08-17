@@ -1074,7 +1074,9 @@ int tda18271_lookup_pll_map(struct dvb_frontend *fe,
 	char *map_name;
 	int ret = 0;
 
+#if 0
 	BUG_ON(!priv->maps);
+#endif
 
 	switch (map_type) {
 	case MAIN_PLL:
@@ -1125,7 +1127,9 @@ int tda18271_lookup_map(struct dvb_frontend *fe,
 	char *map_name;
 	int ret = 0;
 
+#if 0
 	BUG_ON(!priv->maps);
+#endif
 
 	switch (map_type) {
 	case BP_FILTER:
