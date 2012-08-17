@@ -3,11 +3,12 @@ tvw-sdr by Joshua Roys <roysjosh@gmail.com>
   git://github.com/roysjosh/tvw-sdr.git
 https://github.com/roysjosh/tvw-sdr
 
-Userspace driver for TVW750 devices (currently only the TVW750USB, but should
+Linux userspace driver for TVW750 devices (currently only the TVW750USB/TVW750U, but should
 be easy to get the PCI version working).
 
 In order to generate easily readable packet traces, use the provided XSL:
 * capture a trace under Wireshark
+* disable (sub)protocol dissection (esp. PPP)
 * File -> Export -> as XML - "PDML" (packet details) file...
 * $ xsltproc -o cap.txt docs/ati_wireshark.xsl cap.xml
 * $ sed -i -e '/^[RW] | $/ d' cap.txt
