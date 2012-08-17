@@ -32,6 +32,7 @@ make install DESTDIR=%{buildroot}
 
 %files
 %doc AUTHORS COPYING README
+%{_bindir}/tvw_sdr
 %{_libdir}/libtvwsdr.la
 %{_libdir}/libtvwsdr.so
 %{_libdir}/libtvwsdr.so.0

@@ -17,13 +17,33 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef LIBTVWSDR_H
-#define LIBTVWSDR_H
+#include <err.h>
 
-void tvwsdr_msleep(int msecs);
-int tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len);
-int tvwsdr_write_i2c(unsigned char *wrbuf, uint8_t len);
+#include <libusb.h>
+#include <stdlib.h>
 
-int tvwsdr_init();
+struct libusb_device_handle *devh = NULL;
 
-#endif
+int
+main() {
+	libusb_init(NULL);
+
+	devh = libusb_open_device_with_vid_pid(NULL, 0x0438, 0xac14);
+	if (!devh) {
+		err(EXIT_FAILURE, "failed to open usb device");
+	}
+
+	if (libusb_claim_interface(devh, 0)) {
+		err(EXIT_FAILURE, "failed to claim interface 0");
+	}
+
+	//dump_regs(0x2000, 0x0800, 0x00ff);
+
+	tvwsdr_init();
+
+	libusb_release_interface(devh, 0);
+	libusb_close(devh);
+	libusb_exit(NULL);
+
+	return 0;
+}

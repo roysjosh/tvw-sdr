@@ -18,7 +18,6 @@
  */
 
 #include <endian.h>
-#include <err.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -37,7 +36,7 @@
 
 #define BULK_TIMEOUT 0
 
-static struct libusb_device_handle *devh = NULL;
+extern struct libusb_device_handle *devh;
 static struct dvb_frontend fe;
 
 enum tvwsdr_reg_op {
@@ -1912,7 +1911,7 @@ tvwsdr_write_tda18271(unsigned char *wrbuf, uint8_t startaddr, uint8_t endaddr) 
 }
 
 int
-init_tvw() {
+tvwsdr_init() {
 	int ret;
 	unsigned char buf[39];
 	unsigned int i;
@@ -2058,30 +2057,6 @@ init_tvw() {
 		printf("failed to init(6) device: %i\n", ret);
 		return -1;
 	}
-
-	return 0;
-}
-
-int
-main() {
-	libusb_init(NULL);
-
-	devh = libusb_open_device_with_vid_pid(NULL, 0x0438, 0xac14);
-	if (!devh) {
-		err(EXIT_FAILURE, "failed to open usb device");
-	}
-
-	if (libusb_claim_interface(devh, 0)) {
-		err(EXIT_FAILURE, "failed to claim interface 0");
-	}
-
-	//dump_regs(0x2000, 0x0800, 0x00ff);
-
-	init_tvw();
-
-	libusb_release_interface(devh, 0);
-	libusb_close(devh);
-	libusb_exit(NULL);
 
 	return 0;
 }
