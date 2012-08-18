@@ -1537,7 +1537,7 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 			break;
 
 		case UC_READ:
-			buf[0] = cmds[off].val & 0xff;
+			buf[0] = 0x00;
 			buf[1] = cmds[off].reg & 0xff;
 			buf[2] = cmds[off].reg >> 8;
 			buf[3] = 0x40;
