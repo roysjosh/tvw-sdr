@@ -2000,6 +2000,12 @@ tvwsdr_init() {
 		return -1;
 	}
 
+	memset(buf, 0, 4);
+	if (tvwsdr_write_reg(0xe010, 0x1000, buf, 4)) {
+		printf("failed to write 0xe010\n");
+		return -1;
+	}
+
 	printf("Running init 4...\n");
 	ret = tvwsdr_run_reg_cmds(tvw_init4);
 	if (ret) {
