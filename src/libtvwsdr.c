@@ -52,6 +52,9 @@ enum tvwsdr_reg_op {
 	UC_READ,
 	UC_WRITE,
 
+	/* ??? */
+	E0_MAGIC,
+
 	MAX_REG_OP,
 };
 
@@ -1358,11 +1361,7 @@ struct tvwsdr_reg_cmd tvw_init5[] = {
 	{ REG_READ,  0x0800, 0x2000, 0x00100797 },
 	{ REG_READ,  0x0804, 0x2000, 0x00ff5a30 },
 	{ REG_WRITE, 0x0804, 0x2000, 0x00ff5a30 },
-
-	{ .op = MAX_REG_OP },
-};
-
-struct tvwsdr_reg_cmd tvw_init6[] = {
+	{ E0_MAGIC,       0,      0, 0x00000151 },
 	{ REG_WRITE, 0x0808, 0x2000, 0x20070154 },
 	{ REG_WRITE, 0x0938, 0x2000, 0x0001a119 },
 	{ UC_WRITE,  0xf00d,      0,       0xe0 },
@@ -1505,7 +1504,7 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 	int ret;
 	size_t off = 0;
 	uint32_t val;
-	unsigned char buf[4];
+	unsigned char buf[16];
 
 	while(cmds[off].op != MAX_REG_OP) {
 		switch(cmds[off].op) {
@@ -1566,6 +1565,34 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 			}
 			printf("uW %04x %02x\n",
 				cmds[off].reg, cmds[off].val & 0xff);
+			break;
+
+		case E0_MAGIC:
+			ret = tvwsdr_read_reg(0xe000, 0x1000, buf, 4);
+			if (ret) {
+				return ret;
+			}
+			val = htole32(cmds[off].val);
+			memcpy(buf, &val, 4);
+			memset(buf + 4, 0, 12);
+			ret = tvwsdr_write_reg(0xe000, 0x1000, buf, 16);
+			if (ret) {
+				return ret;
+			}
+			printf("eW %08x%08x\n", 0, val);
+
+			ret = tvwsdr_read_reg(0xe010, 0x1000, buf, 16);
+			if (ret) {
+				return ret;
+			}
+			printf("eR %08x%08x\n",
+				*((uint32_t *)(buf + 4)), *((uint32_t *)buf));
+			memset(buf, 0, 4);
+			ret = tvwsdr_write_reg(0xe010, 0x1000, buf, 4);
+			if (ret) {
+				return ret;
+			}
+
 			break;
 
 		default:
@@ -2028,39 +2055,6 @@ tvwsdr_init() {
 	ret = tvwsdr_run_reg_cmds(tvw_init5);
 	if (ret) {
 		printf("failed to init(5) device: %i\n", ret);
-		return -1;
-	}
-
-	/* XXX make into function */
-	if (tvwsdr_read_reg(0xe000, 0x1000, buf, 4)) {
-		printf("failed to read 0xe000\n");
-		return -1;
-	}
-
-	// 0x51010000000000000000000000000000 
-	memset(buf, 0, sizeof(buf));
-	buf[0] = 0x51;
-	buf[1] = 0x01;
-	if (tvwsdr_write_reg(0xe000, 0x1000, buf, 16)) {
-		printf("failed to write 0xe000\n");
-		return -1;
-	}
-
-	if (tvwsdr_read_reg(0xe010, 0x1000, buf, 16)) {
-		printf("failed to read 0xe010\n");
-		return -1;
-	}
-
-	memset(buf, 0, sizeof(buf));
-	if (tvwsdr_write_reg(0xe010, 0x1000, buf, 4)) {
-		printf("failed to write 0xe000\n");
-		return -1;
-	}
-
-	printf("Running init 6...\n");
-	ret = tvwsdr_run_reg_cmds(tvw_init6);
-	if (ret) {
-		printf("failed to init(6) device: %i\n", ret);
 		return -1;
 	}
 
