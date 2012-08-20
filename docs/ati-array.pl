@@ -16,6 +16,7 @@ use constant {
 };
 
 my $state = STATE_SPECIFY;
+my $last_state = $state;
 
 foreach(<ARGV>) {
 	chomp;
@@ -45,6 +46,7 @@ foreach(<ARGV>) {
 	}
 	elsif ($state == STATE_REG_RW) {
 		print join('', reverse(@bytes)) . " },\n";
+		$last_state = $state;
 		$state = STATE_SPECIFY;
 	}
 	elsif ($state == STATE_UC_RW) {
@@ -53,6 +55,12 @@ foreach(<ARGV>) {
 		printf "\t{ %10s 0x%04x,      0,       0x",
 		       ($bytes[3] & 0x40 ? 'UC_READ,  ' : 'UC_WRITE, '), $addr;
 		if ($bytes[3] & 0x80) {
+			printf "%02x },\n", $bytes[0];
+			$last_state = $state;
+			$state = STATE_SPECIFY;
+		}
+		elsif ( $last_state == STATE_UC_R2 and $bytes[3] & 0x40 and $rw eq 'R' ) {
+			# sequential read
 			printf "%02x },\n", $bytes[0];
 			$state = STATE_SPECIFY;
 		}
@@ -66,6 +74,7 @@ foreach(<ARGV>) {
 	elsif ($state == STATE_UC_R2) {
 		@bytes = map { hex } @bytes;
 		printf "%02x },\n", $bytes[0];
+		$last_state = $state;
 		$state = STATE_SPECIFY;
 	}
 }
