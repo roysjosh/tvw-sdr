@@ -115,6 +115,9 @@ enum tda18271_mode {
 	TDA18271_DIGITAL,
 };
 
+extern int tda18271_tune(struct dvb_frontend *fe,
+			 struct tda18271_std_map_item *map, u32 freq, u32 bw);
+
 extern struct dvb_frontend *tda18271_attach(struct dvb_frontend *fe, u8 addr,
 					    struct i2c_adapter *i2c,
 					    struct tda18271_config *cfg);

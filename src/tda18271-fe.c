@@ -914,7 +914,7 @@ static int tda18271_agc(struct dvb_frontend *fe)
 	return ret;
 }
 
-static int tda18271_tune(struct dvb_frontend *fe,
+int tda18271_tune(struct dvb_frontend *fe,
 			 struct tda18271_std_map_item *map, u32 freq, u32 bw)
 {
 	struct tda18271_priv *priv = fe->tuner_priv;
