@@ -1503,6 +1503,7 @@ int
 tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 	int ret;
 	size_t off = 0;
+	uint16_t wval;
 	uint32_t val;
 	unsigned char buf[16];
 
@@ -1574,12 +1575,16 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 			}
 			val = htole32(cmds[off].val);
 			memcpy(buf, &val, 4);
-			memset(buf + 4, 0, 12);
+			wval = htole16(cmds[off].page);
+			memcpy(buf + 4, &wval, 2);
+			wval = htole16(cmds[off].reg);
+			memcpy(buf + 6, &wval, 2);
+			memset(buf + 8, 0, 8);
 			ret = tvwsdr_write_reg(0xe000, 0x1000, buf, 16);
 			if (ret) {
 				return ret;
 			}
-			printf("eW %08x%08x\n", 0, val);
+			printf("eW %08x%08x\n", *((uint32_t *)(buf + 4)), val);
 
 			ret = tvwsdr_read_reg(0xe010, 0x1000, buf, 16);
 			if (ret) {
