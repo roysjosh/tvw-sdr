@@ -20,6 +20,7 @@
 #include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 #include <libusb.h>
 
@@ -30,8 +31,11 @@ struct libusb_transfer *isoch_xfers[NUM_ISOCH_XFERS];
 unsigned char xferbuf[3*1024 * 32];
 int async_status = 0;
 
+int fdnum;
+
 static void LIBUSB_CALL
 tvwsdr_xfer_cb(struct libusb_transfer *xfer) {
+	unsigned char *pkt;
 	unsigned int i;
 
 	if (async_status) {
@@ -39,7 +43,11 @@ tvwsdr_xfer_cb(struct libusb_transfer *xfer) {
 	}
 
 	for(i = 0; i < 32; i++) {
-		printf("%u:%u ", i, xfer->iso_packet_desc[i].actual_length);
+		printf("%u:%u ", i, xfer->iso_packet_desc[i].actual_length >> 10);
+		pkt = libusb_get_iso_packet_buffer_simple(xfer, i);
+		if (write(fdnum, pkt, xfer->iso_packet_desc[i].actual_length) < 0) {
+			printf("\x1b[31mERR\x1b[0m ");
+		}
 	}
 	printf("\n");
 
@@ -75,6 +83,11 @@ main() {
 		err(EXIT_FAILURE, "failed to claim interface 0");
 	}
 
+	fdnum = creat("/dev/shm/tvw_sdr.bin", S_IRUSR | S_IWUSR);
+	if (fdnum < 0) {
+		err(EXIT_FAILURE, "open");
+	}
+
 	//dump_regs(0x2000, 0x0800, 0x00ff);
 
 	tvwsdr_init();
@@ -86,6 +99,8 @@ main() {
 	}
 	async_status = 1;
 	sleep(2);
+
+	close(fdnum);
 
 	libusb_release_interface(devh, 0);
 	libusb_close(devh);
