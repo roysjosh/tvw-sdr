@@ -80,6 +80,7 @@ main() {
 	tvwsdr_init();
 
 	tvwsdr_start_async();
+	tvwsdr_init7();
 	while (libusb_handle_events(NULL) >= 0) {
 		;
 	}
