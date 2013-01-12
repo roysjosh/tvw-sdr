@@ -1,6 +1,6 @@
 /*
  * tvw-sdr, userspace driver for TVW750 devices
- * Copyright (C) 2012  Joshua Roys <roysjosh@gmail.com>
+ * Copyright (C) 2012-2013  Joshua Roys <roysjosh@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,6 +34,7 @@
 #include "tda18271.h"
 #include "tda18271-priv.h"
 #include "tvwsdr-compat.h"
+#include "tvw_reg.h"
 
 #define BULK_TIMEOUT 0
 
@@ -5593,115 +5594,120 @@ tvwsdr_load_fw(const char *fn) {
 int
 tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len) {
 	uint8_t addr, count;
-	unsigned char ctrl[4], tmpbuf[4];
+	uint32_t ctrl, tmpbuf;
 
 	/* address discovery? */
-	ctrl[0] = 0xe7;
-	ctrl[1] = 0x05;
-	ctrl[2] = 0x11;
-	ctrl[3] = 0x08;
-	if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+	ctrl = ((0x0811 << TVW_I2C_PRESCALE_SHIFT) |
+	        TVW_I2C_DONE |
+	        TVW_I2C_NACK |
+	        TVW_I2C_HALT |
+	        TVW_I2C_SOFT_RST |
+	        TVW_I2C_DRIVE_EN |
+	        TVW_I2C_DRIVE_SEL |
+	        TVW_I2C_START |
+	        TVW_I2C_RECEIVE |
+	        0);
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
-	memset(ctrl, 0, 4);
-	if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+	ctrl = 0;
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* read discovered address? */
-	if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+	if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
-	addr = (uint8_t)ctrl[0];
-	if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+	addr = (uint8_t)ctrl;
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* write transaction length */
-	ctrl[0] = (unsigned char)(len > 30 ? 30 : len);
-	ctrl[1] = 0x01;
-	ctrl[2] = 0x00;
-	ctrl[3] = 0x10;
-	if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+	ctrl = (((len > 30 ? 30 : len) << TVW_I2C_DATA_COUNT_SHIFT) |
+	        0x0100 |
+	        (0x10 << TVW_I2C_TIME_LIMIT_SHIFT) |
+	        0);
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* write i2c address with "read" bit set */
-	ctrl[0] = (unsigned char)addr | 0x01;
-	ctrl[1] = ctrl[2] = ctrl[3] = 0x00;
-	if (tvwsdr_write_reg(0x03e8, 0x2000, ctrl, 4)) {
+	ctrl = addr | 1;
+	if (tvwsdr_write_reg(TVW_I2C_DATA, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
-	if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+	if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
-	ctrl[1] |= 0x10;
-	if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+	ctrl |= TVW_I2C_GO;
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* wait for i2c ready? */
-	if (tvwsdr_wait_bits(0x03e0, 0x2000, 0x1000, 0, 10, 100)) {
+	if (tvwsdr_wait_bits(TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
 		return -1;
 	}
 
 	for(count = 0; count < len; count++) {
 		if (count && count % 30 == 0) {
 			/* ??? */
-			if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+			if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			ctrl[1] &= ~0x01;
-			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+			ctrl &= ~TVW_I2C_START;
+			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			if (tvwsdr_wait_bits(0x03e0, 0x2000, 0x01, 0, 10, 100)) {
-				return -1;
-			}
-
-			/* ??? */
-			ctrl[1] |= 0x02;
-			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+			if (tvwsdr_wait_bits(TVW_I2C_CNTL_0, 0x2000, TVW_I2C_DONE, 0, 10, 100)) {
 				return -1;
 			}
 
 			/* ??? */
-			if (tvwsdr_read_reg(0x03e4, 0x2000, ctrl, 4)) {
+			ctrl |= TVW_I2C_STOP;
+			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			ctrl[1] &= ~0x01;
-			if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+
+			/* ??? */
+			if (tvwsdr_read_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			if (tvwsdr_wait_bits(0x03e4, 0x2000, 0x0100, 0, 10, 100)) {
+			ctrl &= ~0x0100;
+			if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+				return -1;
+			}
+			if (tvwsdr_wait_bits(TVW_I2C_CNTL_1, 0x2000, 0x0100, 0, 10, 100)) {
 				return -1;
 			}
 
 			/* write remaining length */
-			ctrl[0] = (unsigned char)(len - count > 30 ? 30 : len - count);
-			if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+			ctrl |= (len - count > 30 ? 30 : len - count);
+			if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 
 			/* ??? */
-			if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+			if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			ctrl[1] |= 0x10;
-			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+			ctrl |= TVW_I2C_GO;
+			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			if (tvwsdr_wait_bits(0x03e0, 0x2000, 0x1000, 0, 10, 100)) {
+			if (tvwsdr_wait_bits(TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
 				return -1;
 			}
 		}
 
-		if (tvwsdr_read_reg(0x03e8, 0x2000, tmpbuf, 4)) {
+		if (tvwsdr_read_reg(TVW_I2C_DATA, 0x2000, &tmpbuf, 4)) {
 			return -1;
 		}
-		outbuf[count] = tmpbuf[0];
+		outbuf[count] = tmpbuf & 0xff;
 	}
 
 	return 0;
@@ -5710,128 +5716,134 @@ tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len) {
 int
 tvwsdr_write_i2c(unsigned char *wrbuf, uint8_t len) {
 	uint8_t addr, count;
-	unsigned char ctrl[4], tmpbuf[4];
+	uint32_t ctrl, tmpbuf;
 
 	/* address discovery? */
-	ctrl[0] = 0xe7;
-	ctrl[1] = 0x01;
-	ctrl[2] = 0x11;
-	ctrl[3] = 0x08;
-	if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+	ctrl = ((0x0811 << TVW_I2C_PRESCALE_SHIFT) |
+	        TVW_I2C_DONE |
+	        TVW_I2C_NACK |
+	        TVW_I2C_HALT |
+	        TVW_I2C_SOFT_RST |
+	        TVW_I2C_DRIVE_EN |
+	        TVW_I2C_DRIVE_SEL |
+	        TVW_I2C_START |
+	        0);
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* ??? */
-	memset(ctrl, 0, 4);
-	if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+	ctrl = 0;
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
-	ctrl[3] = 0x10;
-	if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+	ctrl = ((0x10 << TVW_I2C_TIME_LIMIT_SHIFT) |
+	        0);
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* read discovered address? */
-	if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+	if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
-	addr = (uint8_t)ctrl[0];
+	addr = (uint8_t)ctrl;
 	if (len <= 29) {
-		ctrl[1] |= 0x02;
+		ctrl |= TVW_I2C_STOP;
 	}
-	if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* ??? */
-	if (tvwsdr_read_reg(0x03e4, 0x2000, ctrl, 4)) {
+	if (tvwsdr_read_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
-	ctrl[1] = 0x01;
-	if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
-		return -1;
-	}
-	if (tvwsdr_read_reg(0x03e4, 0x2000, ctrl, 4)) {
+	ctrl &= ~0x0000ff00;
+	ctrl |= 0x00000100;
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* write transaction length */
-	ctrl[0] = (unsigned char)(len > 29 ? 29 : len);
-	if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+	if (tvwsdr_read_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+		return -1;
+	}
+	ctrl |= (len > 29 ? 29 : len);
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* write chip address */
-	memset(ctrl, 0, 4);
-	ctrl[0] = (unsigned char)addr;
-	if (tvwsdr_write_reg(0x03e8, 0x2000, ctrl, 4)) {
+	ctrl = addr;
+	if (tvwsdr_write_reg(TVW_I2C_DATA, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
-	memset(tmpbuf, 0, 4);
+	tmpbuf = 0;
 	for(count = 0; count < len; count++) {
 		if (count && count % 29 == 0) {
 			/* ??? */
-			if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+			if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			ctrl[1] |= 0x10;
-			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+			ctrl |= TVW_I2C_GO;
+			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			if (tvwsdr_wait_bits(0x03e0, 0x2000, 0x1000, 0, 10, 100)) {
-				return -1;
-			}
-
-			/* ??? */
-			ctrl[0] |= 0x07;
-			ctrl[1] = 0;
-			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
-				return -1;
-			}
-			if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
-				return -1;
-			}
-			ctrl[1] |= 0x02;
-			if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+			if (tvwsdr_wait_bits(TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
 				return -1;
 			}
 
 			/* ??? */
-			if (tvwsdr_read_reg(0x03e4, 0x2000, ctrl, 4)) {
+			ctrl |= TVW_I2C_DONE | TVW_I2C_NACK | TVW_I2C_HALT;
+			ctrl &= ~0x0000ff00;
+			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			ctrl[1] &= ~0x01;
-			if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+			if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			if (tvwsdr_wait_bits(0x03e4, 0x2000, 0x0100, 0, 10, 100)) {
+			ctrl |= TVW_I2C_STOP;
+			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+				return -1;
+			}
+
+			/* ??? */
+			if (tvwsdr_read_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+				return -1;
+			}
+			ctrl &= ~0x0100;
+			if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+				return -1;
+			}
+			if (tvwsdr_wait_bits(TVW_I2C_CNTL_1, 0x2000, 0x0100, 0, 10, 100)) {
 				return -1;
 			}
 
 			/* write remaining length */
-			ctrl[0] = (unsigned char)(len - count > 29 ? 29 : len - count);
-			if (tvwsdr_write_reg(0x03e4, 0x2000, ctrl, 4)) {
+			ctrl |= (len - count > 29 ? 29 : len - count);
+			if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 		}
 
-		tmpbuf[0] = wrbuf[count];
-		if (tvwsdr_write_reg(0x03e8, 0x2000, tmpbuf, 4)) {
+		tmpbuf = wrbuf[count];
+		if (tvwsdr_write_reg(TVW_I2C_DATA, 0x2000, &tmpbuf, 4)) {
 			return -1;
 		}
 	}
 
 	/* ??? */
-	if (tvwsdr_read_reg(0x03e0, 0x2000, ctrl, 4)) {
+	if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
-	ctrl[1] |= 0x10;
-	if (tvwsdr_write_reg(0x03e0, 0x2000, ctrl, 4)) {
+	ctrl |= TVW_I2C_GO;
+	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 	/* wait for i2c ready? */
-	if (tvwsdr_wait_bits(0x03e0, 0x2000, 0x1000, 0, 10, 100)) {
+	if (tvwsdr_wait_bits(TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
 		return -1;
 	}
 
