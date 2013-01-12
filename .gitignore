@@ -1,3 +1,26 @@
+# autotools bits
+Makefile
+Makefile.in
+aclocal.m4
+autom4te.cache
+config.*
+configure
+depcomp
+install-sh
+libtool
+ltmain.sh
+missing
+.deps
+.libs
+*.la
+*.lo
+*.o
+stamp-h1
+
+# binaries
+src/tvw_sdr
+
+# firmware
 src/CTRL.bin
 src/CTRL.s3
 src/CTRLT506.bin
