@@ -31,7 +31,7 @@ MODULE_PARM_DESC(debug, "set debug level "
 		 "(info=1, map=2, reg=4, adv=8, cal=16 (or-able))");
 #endif
 
-static int tda18271_cal_on_startup = 1;
+static int tda18271_cal_on_startup = -1;
 #if 0
 module_param_named(cal, tda18271_cal_on_startup, int, 0644);
 MODULE_PARM_DESC(cal, "perform RF tracking filter calibration on startup");
