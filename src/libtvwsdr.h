@@ -1,6 +1,6 @@
 /*
  * tvw-sdr, userspace driver for TVW750 devices
- * Copyright (C) 2012  Joshua Roys <roysjosh@gmail.com>
+ * Copyright (C) 2012-2013  Joshua Roys <roysjosh@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,11 +20,26 @@
 #ifndef LIBTVWSDR_H
 #define LIBTVWSDR_H
 
-void tvwsdr_msleep(int msecs);
-int tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len);
-int tvwsdr_write_i2c(unsigned char *wrbuf, uint8_t len);
+typedef struct tvwsdr_dev tvwsdr_dev_t;
 
-int tvwsdr_init();
-int tvwsdr_init7();
+/*
+ * Acquire a device handle.
+ */
+int tvwsdr_open(tvwsdr_dev_t **dev);
+
+/*
+ * Close and free a device handle.
+ */
+int tvwsdr_close(tvwsdr_dev_t *dev);
+
+/*
+ * Callback function type for USB ISOCH data handling.
+ */
+typedef void(*tvwsdr_read_async_cb_t)(unsigned char *buf, unsigned int len, void *ctx);
+
+/*
+ * Initiate USB ISOCH data transfers.
+ */
+int tvwsdr_read_async(tvwsdr_dev_t *dev, tvwsdr_read_async_cb_t cb, void *ctx);
 
 #endif

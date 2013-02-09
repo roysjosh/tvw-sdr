@@ -127,7 +127,7 @@ int tda18271_read_regs(struct dvb_frontend *fe)
 	int ret;
 
 	/* read all registers */
-	ret = tvwsdr_read_i2c(regs, 16);
+	ret = tvwsdr_read_i2c(fe->frontend_priv, regs, 16);
 
 	if (ret)
 		tda_err("ERROR: i2c_transfer returned: %d\n", ret);
@@ -146,7 +146,7 @@ int tda18271_read_extended(struct dvb_frontend *fe)
 	int ret, i;
 
 	/* read all registers */
-	ret = tvwsdr_read_i2c(regdump, 39);
+	ret = tvwsdr_read_i2c(fe->frontend_priv, regdump, 39);
 
 	if (ret)
 		tda_err("ERROR: i2c_transfer returned: %d\n", ret);
@@ -179,7 +179,7 @@ int tda18271_write_regs(struct dvb_frontend *fe, int idx, int len)
 		buf[i] = regs[idx - 1 + i];
 
 	/* write registers */
-	ret = tvwsdr_write_i2c(buf, len + 1);
+	ret = tvwsdr_write_i2c(fe->frontend_priv, buf, len + 1);
 
 	if (ret) {
 		tda_err("ERROR: idx = 0x%x, len = %d, "

@@ -38,8 +38,23 @@
 
 #define BULK_TIMEOUT 0
 
-extern struct libusb_device_handle *devh;
-static struct dvb_frontend fe;
+#define NUM_ISOCH_XFERS 15
+#define NUM_ISOCH_PACKETS 32
+
+struct tvwsdr_dev {
+	/* libusb info */
+	libusb_context *ctx;
+	struct libusb_device_handle *devh;
+	struct libusb_transfer **xfer;
+	unsigned char **xfer_buf;
+	tvwsdr_read_async_cb_t cb;
+	void *cb_ctx;
+	/* tuner info */
+	struct dvb_frontend fe;
+	/* isoch work buffer */
+	unsigned char work_buf[4*1024];
+	unsigned int work_buflen;
+};
 
 enum tvwsdr_reg_op {
 	REG_READ,
@@ -5312,7 +5327,7 @@ tvwsdr_msleep(int msecs) {
 }
 
 int
-tvwsdr_read_reg(uint16_t reg, uint16_t page, void *buf, uint16_t len) {
+tvwsdr_read_reg(tvwsdr_dev_t *dev, uint16_t reg, uint16_t page, void *buf, uint16_t len) {
 	int ret, n_read;
 	uint16_t flags = 0x0000, len_le, rlen = len;
 	unsigned char tmpbuf[12] = {0};
@@ -5338,19 +5353,19 @@ tvwsdr_read_reg(uint16_t reg, uint16_t page, void *buf, uint16_t len) {
 	memcpy(tmpbuf + 10, &page, 2);
 
 	/* write offset */
-	ret = libusb_bulk_transfer(devh, 0x03, tmpbuf, 12, &n_read, BULK_TIMEOUT);
+	ret = libusb_bulk_transfer(dev->devh, 0x03, tmpbuf, 12, &n_read, BULK_TIMEOUT);
 	if (ret) {
 		return ret;
 	}
 
 	/* read data */
-	ret = libusb_bulk_transfer(devh, 0x82, buf, rlen, &n_read, BULK_TIMEOUT);
+	ret = libusb_bulk_transfer(dev->devh, 0x82, buf, rlen, &n_read, BULK_TIMEOUT);
 
 	return ret;
 }
 
 int
-tvwsdr_write_reg(uint16_t reg, uint16_t page, void *buf, uint16_t len) {
+tvwsdr_write_reg(tvwsdr_dev_t *dev, uint16_t reg, uint16_t page, void *buf, uint16_t len) {
 	int ret, n_read;
 	uint16_t len_le;
 	unsigned char tmpbuf[12] = {0};
@@ -5368,24 +5383,24 @@ tvwsdr_write_reg(uint16_t reg, uint16_t page, void *buf, uint16_t len) {
 	memcpy(tmpbuf + 10, &page, 2);
 
 	/* write offset */
-	ret = libusb_bulk_transfer(devh, 0x03, tmpbuf, 12, &n_read, BULK_TIMEOUT);
+	ret = libusb_bulk_transfer(dev->devh, 0x03, tmpbuf, 12, &n_read, BULK_TIMEOUT);
 	if (ret) {
 		return ret;
 	}
 
 	/* write data */
-	ret = libusb_bulk_transfer(devh, 0x03, buf, len, &n_read, BULK_TIMEOUT);
+	ret = libusb_bulk_transfer(dev->devh, 0x03, buf, len, &n_read, BULK_TIMEOUT);
 
 	return ret;
 }
 
 int
-tvwsdr_wait_bits(uint16_t reg, uint16_t page, uint32_t mask, uint32_t val, int msec, int loop) {
+tvwsdr_wait_bits(tvwsdr_dev_t *dev, uint16_t reg, uint16_t page, uint32_t mask, uint32_t val, int msec, int loop) {
 	int count;
 	uint32_t rval;
 
 	for(count = 0; count < loop; count++) {
-		if (tvwsdr_read_reg(reg, page, &rval, sizeof(rval))) {
+		if (tvwsdr_read_reg(dev, reg, page, &rval, sizeof(rval))) {
 			return -1;
 		}
 		rval = le32toh(rval);
@@ -5398,27 +5413,8 @@ tvwsdr_wait_bits(uint16_t reg, uint16_t page, uint32_t mask, uint32_t val, int m
 	return -1;
 }
 
-void
-dump_regs(uint16_t page, uint16_t start, uint16_t span) {
-	uint16_t i, reg, regmax;
-	unsigned char buf[16];
-
-	reg = start; regmax = reg + span;
-	do {
-		tvwsdr_read_reg(reg, page, buf, (uint16_t)sizeof(buf));
-		printf("%04x: ", reg);
-		for(i = 0; i < sizeof(buf); i++) {
-			printf("%02x", buf[i]);
-		}
-		printf("\n");
-		fflush(stdout);
-
-		reg += sizeof(buf);
-	} while(reg && reg <= (regmax - sizeof(buf) + 1));
-}
-
 int
-tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
+tvwsdr_run_reg_cmds(tvwsdr_dev_t *dev, struct tvwsdr_reg_cmd *cmds) {
 	int ret;
 	size_t off = 0;
 	uint16_t wval;
@@ -5428,7 +5424,7 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 	while(cmds[off].op != MAX_REG_OP) {
 		switch(cmds[off].op) {
 		case REG_READ:
-			ret = tvwsdr_read_reg(cmds[off].reg, cmds[off].page, buf, 4);
+			ret = tvwsdr_read_reg(dev, cmds[off].reg, cmds[off].page, buf, 4);
 			if (ret) {
 				return ret;
 			}
@@ -5442,7 +5438,7 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 		case REG_WRITE:
 			val = htole32(cmds[off].val);
 			memcpy(buf, &val, 4);
-			ret = tvwsdr_write_reg(cmds[off].reg, cmds[off].page, buf, 4);
+			ret = tvwsdr_write_reg(dev, cmds[off].reg, cmds[off].page, buf, 4);
 			if (ret) {
 				return ret;
 			}
@@ -5459,11 +5455,11 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 			buf[1] = cmds[off].reg & 0xff;
 			buf[2] = cmds[off].reg >> 8;
 			buf[3] = 0x40;
-			ret = tvwsdr_write_reg(0x4400, 0x2000, buf, 4);
+			ret = tvwsdr_write_reg(dev, 0x4400, 0x2000, buf, 4);
 			if (ret) {
 				return ret;
 			}
-			ret = tvwsdr_read_reg(0x4400, 0x2000, buf, 4);
+			ret = tvwsdr_read_reg(dev, 0x4400, 0x2000, buf, 4);
 			if (ret) {
 				return ret;
 			}
@@ -5478,7 +5474,7 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 			buf[1] = cmds[off].reg & 0xff;
 			buf[2] = cmds[off].reg >> 8;
 			buf[3] = 0x80;
-			ret = tvwsdr_write_reg(0x4400, 0x2000, buf, 4);
+			ret = tvwsdr_write_reg(dev, 0x4400, 0x2000, buf, 4);
 			if (ret) {
 				return ret;
 			}
@@ -5487,7 +5483,7 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 			break;
 
 		case E0_MAGIC:
-			ret = tvwsdr_read_reg(0xe000, 0x1000, buf, 4);
+			ret = tvwsdr_read_reg(dev, 0xe000, 0x1000, buf, 4);
 			if (ret) {
 				return ret;
 			}
@@ -5498,20 +5494,20 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 			wval = htole16(cmds[off].reg);
 			memcpy(buf + 6, &wval, 2);
 			memset(buf + 8, 0, 8);
-			ret = tvwsdr_write_reg(0xe000, 0x1000, buf, 16);
+			ret = tvwsdr_write_reg(dev, 0xe000, 0x1000, buf, 16);
 			if (ret) {
 				return ret;
 			}
 			printf("eW %08x%08x\n", *((uint32_t *)(buf + 4)), val);
 
-			ret = tvwsdr_read_reg(0xe010, 0x1000, buf, 16);
+			ret = tvwsdr_read_reg(dev, 0xe010, 0x1000, buf, 16);
 			if (ret) {
 				return ret;
 			}
 			printf("eR %08x%08x\n",
 				*((uint32_t *)(buf + 4)), *((uint32_t *)buf));
 			memset(buf, 0, 4);
-			ret = tvwsdr_write_reg(0xe010, 0x1000, buf, 4);
+			ret = tvwsdr_write_reg(dev, 0xe010, 0x1000, buf, 4);
 			if (ret) {
 				return ret;
 			}
@@ -5529,7 +5525,7 @@ tvwsdr_run_reg_cmds(struct tvwsdr_reg_cmd *cmds) {
 }
 
 int
-tvwsdr_load_fw(const char *fn) {
+tvwsdr_load_fw(tvwsdr_dev_t *dev, const char *fn) {
 	char *buf;
 	int fd;
 	size_t flen, fpos;
@@ -5573,7 +5569,7 @@ tvwsdr_load_fw(const char *fn) {
 		else {
 			wlen = 512;
 		}
-		if (tvwsdr_write_reg((uint16_t)fpos, 0x1001, buf + fpos, wlen)) {
+		if (tvwsdr_write_reg(dev, (uint16_t)fpos, 0x1001, buf + fpos, wlen)) {
 			warnx("failed firmware transfer at 0x%04x", (uint16_t)fpos);
 			free(buf);
 			return -1;
@@ -5592,7 +5588,7 @@ tvwsdr_load_fw(const char *fn) {
 }
 
 int
-tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len) {
+tvwsdr_read_i2c(tvwsdr_dev_t *dev, unsigned char *outbuf, uint8_t len) {
 	uint8_t addr, count;
 	uint32_t ctrl, tmpbuf;
 
@@ -5607,21 +5603,21 @@ tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len) {
 	        TVW_I2C_START |
 	        TVW_I2C_RECEIVE |
 	        0);
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	ctrl = 0;
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* read discovered address? */
-	if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 	addr = (uint8_t)ctrl;
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
@@ -5630,81 +5626,81 @@ tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len) {
 	        0x0100 |
 	        (0x10 << TVW_I2C_TIME_LIMIT_SHIFT) |
 	        0);
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* write i2c address with "read" bit set */
 	ctrl = addr | 1;
-	if (tvwsdr_write_reg(TVW_I2C_DATA, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_DATA, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
-	if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 	ctrl |= TVW_I2C_GO;
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* wait for i2c ready? */
-	if (tvwsdr_wait_bits(TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
+	if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
 		return -1;
 	}
 
 	for(count = 0; count < len; count++) {
 		if (count && count % 30 == 0) {
 			/* ??? */
-			if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 			ctrl &= ~TVW_I2C_START;
-			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			if (tvwsdr_wait_bits(TVW_I2C_CNTL_0, 0x2000, TVW_I2C_DONE, 0, 10, 100)) {
+			if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_0, 0x2000, TVW_I2C_DONE, 0, 10, 100)) {
 				return -1;
 			}
 
 			/* ??? */
 			ctrl |= TVW_I2C_STOP;
-			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 
 			/* ??? */
-			if (tvwsdr_read_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 			ctrl &= ~0x0100;
-			if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			if (tvwsdr_wait_bits(TVW_I2C_CNTL_1, 0x2000, 0x0100, 0, 10, 100)) {
+			if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_1, 0x2000, 0x0100, 0, 10, 100)) {
 				return -1;
 			}
 
 			/* write remaining length */
 			ctrl |= (len - count > 30 ? 30 : len - count);
-			if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 
 			/* ??? */
-			if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 			ctrl |= TVW_I2C_GO;
-			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			if (tvwsdr_wait_bits(TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
+			if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
 				return -1;
 			}
 		}
 
-		if (tvwsdr_read_reg(TVW_I2C_DATA, 0x2000, &tmpbuf, 4)) {
+		if (tvwsdr_read_reg(dev, TVW_I2C_DATA, 0x2000, &tmpbuf, 4)) {
 			return -1;
 		}
 		outbuf[count] = tmpbuf & 0xff;
@@ -5714,7 +5710,7 @@ tvwsdr_read_i2c(unsigned char *outbuf, uint8_t len) {
 }
 
 int
-tvwsdr_write_i2c(unsigned char *wrbuf, uint8_t len) {
+tvwsdr_write_i2c(tvwsdr_dev_t *dev, unsigned char *wrbuf, uint8_t len) {
 	uint8_t addr, count;
 	uint32_t ctrl, tmpbuf;
 
@@ -5728,55 +5724,55 @@ tvwsdr_write_i2c(unsigned char *wrbuf, uint8_t len) {
 	        TVW_I2C_DRIVE_SEL |
 	        TVW_I2C_START |
 	        0);
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* ??? */
 	ctrl = 0;
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 	ctrl = ((0x10 << TVW_I2C_TIME_LIMIT_SHIFT) |
 	        0);
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* read discovered address? */
-	if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 	addr = (uint8_t)ctrl;
 	if (len <= 29) {
 		ctrl |= TVW_I2C_STOP;
 	}
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* ??? */
-	if (tvwsdr_read_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 	ctrl &= ~0x0000ff00;
 	ctrl |= 0x00000100;
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* write transaction length */
-	if (tvwsdr_read_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 	ctrl |= (len > 29 ? 29 : len);
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
 	/* write chip address */
 	ctrl = addr;
-	if (tvwsdr_write_reg(TVW_I2C_DATA, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_DATA, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 
@@ -5784,66 +5780,66 @@ tvwsdr_write_i2c(unsigned char *wrbuf, uint8_t len) {
 	for(count = 0; count < len; count++) {
 		if (count && count % 29 == 0) {
 			/* ??? */
-			if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 			ctrl |= TVW_I2C_GO;
-			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			if (tvwsdr_wait_bits(TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
+			if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
 				return -1;
 			}
 
 			/* ??? */
 			ctrl |= TVW_I2C_DONE | TVW_I2C_NACK | TVW_I2C_HALT;
 			ctrl &= ~0x0000ff00;
-			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 			ctrl |= TVW_I2C_STOP;
-			if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 
 			/* ??? */
-			if (tvwsdr_read_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 			ctrl &= ~0x0100;
-			if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
-			if (tvwsdr_wait_bits(TVW_I2C_CNTL_1, 0x2000, 0x0100, 0, 10, 100)) {
+			if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_1, 0x2000, 0x0100, 0, 10, 100)) {
 				return -1;
 			}
 
 			/* write remaining length */
 			ctrl |= (len - count > 29 ? 29 : len - count);
-			if (tvwsdr_write_reg(TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
+			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
 				return -1;
 			}
 		}
 
 		tmpbuf = wrbuf[count];
-		if (tvwsdr_write_reg(TVW_I2C_DATA, 0x2000, &tmpbuf, 4)) {
+		if (tvwsdr_write_reg(dev, TVW_I2C_DATA, 0x2000, &tmpbuf, 4)) {
 			return -1;
 		}
 	}
 
 	/* ??? */
-	if (tvwsdr_read_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 	ctrl |= TVW_I2C_GO;
-	if (tvwsdr_write_reg(TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
+	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
 		return -1;
 	}
 	/* wait for i2c ready? */
-	if (tvwsdr_wait_bits(TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
+	if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
 		return -1;
 	}
 
@@ -5856,7 +5852,7 @@ tvwsdr_write_i2c(unsigned char *wrbuf, uint8_t len) {
  * old value is restored.
  */
 int
-tvwsdr_write_tda18271(unsigned char *wrbuf, uint8_t startaddr, uint8_t endaddr) {
+tvwsdr_write_tda18271(tvwsdr_dev_t *dev, unsigned char *wrbuf, uint8_t startaddr, uint8_t endaddr) {
 	int ret;
 	uint8_t len;
 	unsigned char tmp;
@@ -5865,49 +5861,49 @@ tvwsdr_write_tda18271(unsigned char *wrbuf, uint8_t startaddr, uint8_t endaddr) 
 
 	tmp = wrbuf[startaddr - 1];
 	wrbuf[startaddr - 1] = (unsigned char)startaddr;
-	ret = tvwsdr_write_i2c(wrbuf + startaddr - 1, len + 1);
+	ret = tvwsdr_write_i2c(dev, wrbuf + startaddr - 1, len + 1);
 	wrbuf[startaddr - 1] = tmp;
 
 	return ret;
 }
 
 int
-tvwsdr_init() {
+tvwsdr_init(tvwsdr_dev_t *dev) {
 	int ret;
 	unsigned char buf[39];
 	unsigned int i;
 
 	printf("Running init 1...\n");
-	ret = tvwsdr_run_reg_cmds(tvw_init1);
+	ret = tvwsdr_run_reg_cmds(dev, tvw_init1);
 	if (ret) {
 		printf("failed to init(1) device: %i\n", ret);
 		return -1;
 	}
 
 	printf("Uploading first firmware...\n");
-	ret = tvwsdr_load_fw("CTRLT507-fixed.bin");
+	ret = tvwsdr_load_fw(dev, "CTRLT507-fixed.bin");
 	if (ret) {
 		printf("failed to load firmware\n");
 		return -1;
 	}
 
-	if (tvwsdr_read_reg(0x200c, 0x2000, buf, 4)) {
+	if (tvwsdr_read_reg(dev, 0x200c, 0x2000, buf, 4)) {
 		printf("failed to read 0x200c\n");
 		return -1;
 	}
-	if (tvwsdr_write_reg(0x200c, 0x2000, buf, 4)) {
+	if (tvwsdr_write_reg(dev, 0x200c, 0x2000, buf, 4)) {
 		printf("failed to write 0x200c\n");
 		return -1;
 	}
 
 	/* this register read doesn't follow the pattern of the rest... */
-	if (tvwsdr_read_reg(0x0000, 0x8000, buf, 0)) {
+	if (tvwsdr_read_reg(dev, 0x0000, 0x8000, buf, 0)) {
 		printf("failed to do odd register read\n");
 		return -1;
 	}
 
 	printf("Running init 2...\n");
-	ret = tvwsdr_run_reg_cmds(tvw_init2);
+	ret = tvwsdr_run_reg_cmds(dev, tvw_init2);
 	if (ret) {
 		printf("failed to init(2) device: %i\n", ret);
 		return -1;
@@ -5916,27 +5912,27 @@ tvwsdr_init() {
 	/* SPI? */
 
 	/* switch to bAlternateSetting 1 */
-	if (libusb_set_interface_alt_setting(devh, 0, 1)) {
+	if (libusb_set_interface_alt_setting(dev->devh, 0, 1)) {
 		printf("failed to set alternate setting 1\n");
 		return -1;
 	}
 
 	printf("Running init 3...\n");
-	ret = tvwsdr_run_reg_cmds(tvw_init3);
+	ret = tvwsdr_run_reg_cmds(dev, tvw_init3);
 	if (ret) {
 		printf("failed to init(3) device: %i\n", ret);
 		return -1;
 	}
 
 	printf("Uploading second firmware...\n");
-	ret = tvwsdr_load_fw("T507.bin");
+	ret = tvwsdr_load_fw(dev, "T507.bin");
 	if (ret) {
 		printf("failed to load firmware\n");
 		return -1;
 	}
 
 	/* XXX make into function */
-	if (tvwsdr_read_reg(0xe000, 0x1000, buf, 4)) {
+	if (tvwsdr_read_reg(dev, 0xe000, 0x1000, buf, 4)) {
 		printf("failed to read 0xe000\n");
 		return -1;
 	}
@@ -5949,26 +5945,26 @@ tvwsdr_init() {
 	/* 0x8e1a is T507.bin fw size */
 	buf[6] = 0x1a;
 	buf[7] = 0x8e;
-	if (tvwsdr_write_reg(0xe000, 0x1000, buf, 16)) {
+	if (tvwsdr_write_reg(dev, 0xe000, 0x1000, buf, 16)) {
 		printf("failed to write 0xe000\n");
 		return -1;
 	}
 
 	sleep(1);
 
-	if (tvwsdr_read_reg(0xe010, 0x1000, buf, 16)) {
+	if (tvwsdr_read_reg(dev, 0xe010, 0x1000, buf, 16)) {
 		printf("failed to read 0xe010\n");
 		return -1;
 	}
 
 	memset(buf, 0, 4);
-	if (tvwsdr_write_reg(0xe010, 0x1000, buf, 4)) {
+	if (tvwsdr_write_reg(dev, 0xe010, 0x1000, buf, 4)) {
 		printf("failed to write 0xe010\n");
 		return -1;
 	}
 
 	printf("Running init 4...\n");
-	ret = tvwsdr_run_reg_cmds(tvw_init4);
+	ret = tvwsdr_run_reg_cmds(dev, tvw_init4);
 	if (ret) {
 		printf("failed to init(4) device: %i\n", ret);
 		return -1;
@@ -5976,8 +5972,9 @@ tvwsdr_init() {
 
 	/* tuner config over I2C */
 	printf("Configuring tuner...\n");
-	tda18271_attach(&fe, 0, NULL, NULL);
-	if (tvwsdr_read_i2c(buf, sizeof(buf))) {
+	dev->fe.frontend_priv = dev;
+	tda18271_attach(&dev->fe, 0, NULL, NULL);
+	if (tvwsdr_read_i2c(dev, buf, sizeof(buf))) {
 		printf("failed to read i2c data\n");
 		return -1;
 	}
@@ -5986,14 +5983,14 @@ tvwsdr_init() {
 	}
 
 	printf("Running init 5...\n");
-	ret = tvwsdr_run_reg_cmds(tvw_init5);
+	ret = tvwsdr_run_reg_cmds(dev, tvw_init5);
 	if (ret) {
 		printf("failed to init(5) device: %i\n", ret);
 		return -1;
 	}
 
 	printf("Running init 6...\n");
-	ret = tvwsdr_run_reg_cmds(tvw_init6);
+	ret = tvwsdr_run_reg_cmds(dev, tvw_init6);
 	if (ret) {
 		printf("failed to init(6) device: %i\n", ret);
 		return -1;
@@ -6008,14 +6005,193 @@ tvwsdr_init() {
 }
 
 int
-tvwsdr_init7() {
+tvwsdr_init7(tvwsdr_dev_t *dev) {
 	int ret;
 
 	printf("Running init 7...\n");
-	ret = tvwsdr_run_reg_cmds(tvw_init7);
+	ret = tvwsdr_run_reg_cmds(dev, tvw_init7);
 	if (ret) {
 		printf("failed to init(7) device: %i\n", ret);
 		return -1;
+	}
+
+	return 0;
+}
+
+int
+tvwsdr_open(tvwsdr_dev_t **out_dev) {
+	tvwsdr_dev_t *dev = NULL;
+
+	dev = malloc(sizeof(tvwsdr_dev_t));
+	if (NULL == dev) {
+		return -ENOMEM;
+	}
+
+	memset(dev, 0, sizeof(tvwsdr_dev_t));
+
+	libusb_init(&dev->ctx);
+
+	dev->devh = libusb_open_device_with_vid_pid(dev->ctx, 0x0438, 0xac14);
+	if (NULL == dev->devh) {
+		fprintf(stderr, "failed to open usb device\n");
+		goto err;
+	}
+
+	if (libusb_claim_interface(dev->devh, 0)) {
+		fprintf(stderr, "failed to claim interface 0");
+		goto err;
+	}
+
+	// XXX
+	tvwsdr_init(dev);
+	//tvwsdr_start_async();
+	tvwsdr_init7(dev);
+
+	*out_dev = dev;
+
+	return 0;
+
+err:
+	if (dev->ctx) {
+		libusb_exit(dev->ctx);
+	}
+
+	free(dev);
+
+	return -1;
+}
+
+int
+tvwsdr_close(tvwsdr_dev_t *dev) {
+	if (NULL == dev) {
+		return -1;
+	}
+
+	// XXX wait on async ops?
+
+	libusb_release_interface(dev->devh, 0);
+	libusb_close(dev->devh);
+
+	libusb_exit(dev->ctx);
+
+	free(dev);
+
+	return 0;
+}
+
+void
+tvwsdr_deframe_isoch_data(tvwsdr_dev_t *dev, unsigned char *data, int len) {
+	unsigned char *ptr;
+	unsigned int frame_length, tmpoffset = 0;
+
+	/* safety check */
+	if (dev->work_buflen + len > sizeof(dev->work_buf)) {
+		dev->work_buflen = 0;
+	}
+
+	/* append the new data to any existing data */
+	memcpy(dev->work_buf + dev->work_buflen, data, len);
+	dev->work_buflen += len;
+
+	do {
+		/* look for the start of boundary mark: 0xff */
+		ptr = memchr(dev->work_buf + tmpoffset, '\xff', dev->work_buflen - tmpoffset);
+		if (NULL == ptr) {
+			break;
+		}
+
+		/* how much data do we have before the next boundary section? */
+		frame_length = ptr - (dev->work_buf + tmpoffset);
+		/* boundary sections are 32 bytes long */
+		if (frame_length + 32 > dev->work_buflen - tmpoffset) {
+			break;
+		}
+
+		dev->cb(dev->work_buf + tmpoffset, frame_length, dev->cb_ctx);
+
+#if 0
+		/* print header (footer?) */
+		printf("%4i: ", frame_length);
+		for(j = 0; j < 32; j++) {
+			printf("%02x ", *(ptr + j));
+		}
+		printf("\n");
+#endif
+
+		tmpoffset += frame_length + 32;
+	} while(1);
+
+	/* move data around */
+	dev->work_buflen -= tmpoffset;
+	memmove(dev->work_buf, dev->work_buf + tmpoffset, dev->work_buflen);
+}
+
+static void LIBUSB_CALL
+tvwsdr_xfer_cb(struct libusb_transfer *xfer) {
+	int actual_length, i;
+	tvwsdr_dev_t *dev = (tvwsdr_dev_t *)xfer->user_data;
+	unsigned char *pkt;
+
+	if (xfer->status != LIBUSB_TRANSFER_COMPLETED) {
+		return;
+	}
+
+	if (dev->cb) {
+		for(i = 0; i < NUM_ISOCH_PACKETS; i++) {
+			pkt = libusb_get_iso_packet_buffer_simple(xfer, i);
+			actual_length = xfer->iso_packet_desc[i].actual_length;
+
+			tvwsdr_deframe_isoch_data(dev, pkt, actual_length);
+		}
+	}
+
+	libusb_submit_transfer(xfer);
+}
+
+int
+tvwsdr_read_async(tvwsdr_dev_t *dev, tvwsdr_read_async_cb_t cb, void *ctx) {
+	int i;
+
+	if (NULL == dev) {
+		return -1;
+	}
+
+	dev->cb = cb;
+	dev->cb_ctx = ctx;
+
+	if (NULL == dev->xfer) {
+		dev->xfer = malloc(NUM_ISOCH_XFERS * sizeof(struct libusb_transfer *));
+
+		for(i = 0; i < NUM_ISOCH_XFERS; i++) {
+			dev->xfer[i] = libusb_alloc_transfer(NUM_ISOCH_PACKETS);
+		}
+	}
+
+	if (NULL == dev->xfer_buf) {
+		dev->xfer_buf = malloc(NUM_ISOCH_XFERS * sizeof(unsigned char *));
+
+		for(i = 0; i < NUM_ISOCH_XFERS; i++) {
+			dev->xfer_buf[i] = malloc(3*1024 * NUM_ISOCH_PACKETS);
+		}
+	}
+
+	for(i = 0; i < NUM_ISOCH_XFERS; i++) {
+		libusb_fill_iso_transfer(
+				dev->xfer[i],
+				dev->devh,
+				0x81,
+				dev->xfer_buf[i],
+				3*1024 * NUM_ISOCH_PACKETS,
+				NUM_ISOCH_PACKETS,
+				tvwsdr_xfer_cb,
+				(void *)dev,
+				1000);
+		libusb_set_iso_packet_lengths(dev->xfer[i], 3*1024);
+		libusb_submit_transfer(dev->xfer[i]);
+	}
+
+	while (libusb_handle_events(dev->ctx) >= 0) {
+		;
 	}
 
 	return 0;

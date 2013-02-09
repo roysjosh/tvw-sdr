@@ -56,6 +56,7 @@ typedef uint32_t u32;
 
 struct dvb_frontend {
 	void *tuner_priv;
+	void *frontend_priv;
 };
 
 struct i2c_adapter {

@@ -1,6 +1,6 @@
 /*
  * tvw-sdr, userspace driver for TVW750 devices
- * Copyright (C) 2012  Joshua Roys <roysjosh@gmail.com>
+ * Copyright (C) 2012-2013  Joshua Roys <roysjosh@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,65 +22,29 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 
-#include <libusb.h>
-
-struct libusb_device_handle *devh = NULL;
-
-#define NUM_ISOCH_XFERS 15
-struct libusb_transfer *isoch_xfers[NUM_ISOCH_XFERS];
-unsigned char xferbuf[3*1024 * 32];
-int async_status = 0;
+#include "libtvwsdr.h"
 
 int fdnum;
 
-static void LIBUSB_CALL
-tvwsdr_xfer_cb(struct libusb_transfer *xfer) {
-	unsigned char *pkt;
-	unsigned int i;
-
-	if (async_status) {
-		return;
+void
+tvwsdr_xfer_cb(unsigned char *buf, unsigned int len, void *ctx) {
+	if (write(fdnum, buf, len) < 0) {
+		;
 	}
-
-	for(i = 0; i < 32; i++) {
-		printf("%u:%u ", i, xfer->iso_packet_desc[i].actual_length >> 10);
-		pkt = libusb_get_iso_packet_buffer_simple(xfer, i);
-		if (write(fdnum, pkt, xfer->iso_packet_desc[i].actual_length) < 0) {
-			printf("\x1b[31mERR\x1b[0m ");
-		}
+	/* HACK */
+	if (len & 1) {
+		unsigned char zero[1] = { 0 };
+		write(fdnum, &zero, 1);
 	}
-	printf("\n");
-
-	if (LIBUSB_TRANSFER_COMPLETED == xfer->status) {
-		libusb_submit_transfer(xfer);
-	}
-}
-
-int
-tvwsdr_start_async() {
-	unsigned int i;
-
-	for(i = 0; i < sizeof(isoch_xfers) / sizeof(struct libusb_transfer *); i++) {
-		isoch_xfers[i] = libusb_alloc_transfer(32);
-		libusb_fill_iso_transfer(isoch_xfers[i], devh, 0x81, xferbuf, sizeof(xferbuf), 32, tvwsdr_xfer_cb, NULL, 1000);
-		libusb_set_iso_packet_lengths(isoch_xfers[i], 3*1024);
-		libusb_submit_transfer(isoch_xfers[i]);
-	}
-
-	return 0;
 }
 
 int
 main() {
-	libusb_init(NULL);
+	tvwsdr_dev_t *dev;
 
-	devh = libusb_open_device_with_vid_pid(NULL, 0x0438, 0xac14);
-	if (!devh) {
-		err(EXIT_FAILURE, "failed to open usb device");
-	}
-
-	if (libusb_claim_interface(devh, 0)) {
-		err(EXIT_FAILURE, "failed to claim interface 0");
+	if (tvwsdr_open(&dev)) {
+		tvwsdr_close(dev);
+		return EXIT_FAILURE;
 	}
 
 	fdnum = creat("/dev/shm/tvw_sdr.bin", S_IRUSR | S_IWUSR);
@@ -88,23 +52,11 @@ main() {
 		err(EXIT_FAILURE, "open");
 	}
 
-	//dump_regs(0x2000, 0x0800, 0x00ff);
-
-	tvwsdr_init();
-
-	tvwsdr_start_async();
-	tvwsdr_init7();
-	while (libusb_handle_events(NULL) >= 0) {
-		;
-	}
-	async_status = 1;
-	sleep(2);
+	tvwsdr_read_async(dev, tvwsdr_xfer_cb, NULL);
 
 	close(fdnum);
 
-	libusb_release_interface(devh, 0);
-	libusb_close(devh);
-	libusb_exit(NULL);
+	tvwsdr_close(dev);
 
-	return 0;
+	return EXIT_SUCCESS;
 }
