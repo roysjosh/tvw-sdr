@@ -5996,7 +5996,7 @@ tvwsdr_init(tvwsdr_dev_t *dev) {
 		return -1;
 	}
 
-	if (tda18271_tune(&fe, &(((struct tda18271_priv *)fe.tuner_priv)->std.qam_8), 853500000, 8000000)) {
+	if (tda18271_tune(&dev->fe, &(((struct tda18271_priv *)dev->fe.tuner_priv)->std.qam_8), 853500000, 8000000)) {
 		printf("failed to tune\n");
 		return -1;
 	}
