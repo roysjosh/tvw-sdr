@@ -21,7 +21,7 @@
 #ifndef __TDA18271_H__
 #define __TDA18271_H__
 
-#include "tvwsdr-compat.h"
+#include "compat.h"
 
 struct tda18271_std_map_item {
 	u16 if_freq;

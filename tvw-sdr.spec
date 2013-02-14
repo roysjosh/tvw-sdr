@@ -1,5 +1,5 @@
 Name:		tvw-sdr
-Version:	2012.08.16
+Version:	2013.02.14
 Release:	1%{?dist}
 Summary:	Linux userspace driver for TVW750 (TVW750USB/TVW750U) devices
 
@@ -37,8 +37,12 @@ make install DESTDIR=%{buildroot}
 %{_libdir}/libtvwsdr.so
 %{_libdir}/libtvwsdr.so.0
 %{_libdir}/libtvwsdr.so.0.0.0
+%{_includedir}/%{name}.h
 
 
 %changelog
+* Thu Feb 14 2013 Joshua Roys <roysjosh@gmail.com> - 2013.02.14-1
+- working library interface
+
 * Thu Aug 16 2012 Joshua Roys <roysjosh@gmail.com> - 2012.08.16-1
 - initial package

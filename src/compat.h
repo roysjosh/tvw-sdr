@@ -28,7 +28,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "libtvwsdr.h"
+#include "tvw-sdr.h"
 
 #define msleep tvwsdr_msleep
 #define udelay usleep

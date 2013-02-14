@@ -19,7 +19,6 @@
 
 #include <endian.h>
 #include <fcntl.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,11 +29,11 @@
 
 #include <libusb.h>
 
-#include "libtvwsdr.h"
+#include "compat.h"
 #include "tda18271.h"
 #include "tda18271-priv.h"
-#include "tvwsdr-compat.h"
-#include "tvw_reg.h"
+#include "tvw-reg.h"
+#include "tvw-sdr.h"
 
 #define BULK_TIMEOUT 0
 
@@ -51,6 +50,8 @@ struct tvwsdr_dev {
 	void *cb_ctx;
 	/* tuner info */
 	struct dvb_frontend fe;
+	/* saved configuration information */
+	uint32_t freq;
 	/* isoch work buffer */
 	unsigned char work_buf[4*1024];
 	unsigned int work_buflen;
@@ -6079,6 +6080,28 @@ tvwsdr_close(tvwsdr_dev_t *dev) {
 	return 0;
 }
 
+uint32_t
+tvwsdr_get_center_freq(tvwsdr_dev_t *dev) {
+	if (NULL == dev) {
+		return 0;
+	}
+
+	return dev->freq;
+}
+
+int
+tvwsdr_set_center_freq(tvwsdr_dev_t *dev, uint32_t freq) {
+	if (NULL == dev) {
+		return -1;
+	}
+
+	if (tda18271_tune(&dev->fe, &(((struct tda18271_priv *)dev->fe.tuner_priv)->std.qam_8), freq, 8000000)) {
+		return -1;
+	}
+
+	return 0;
+}
+
 void
 tvwsdr_deframe_isoch_data(tvwsdr_dev_t *dev, unsigned char *data, int len) {
 	unsigned char *ptr;
@@ -6194,5 +6217,17 @@ tvwsdr_read_async(tvwsdr_dev_t *dev, tvwsdr_read_async_cb_t cb, void *ctx) {
 		;
 	}
 
+	return 0;
+}
+
+int
+tvwsdr_cancel_async(tvwsdr_dev_t *dev) {
+	/* FIXME */
+	return 0;
+}
+
+int
+tvwsdr_set_sample_rate(tvwsdr_dev_t *dev, uint32_t rate) {
+	/* Currently a stub function until more is known about the T507. */
 	return 0;
 }

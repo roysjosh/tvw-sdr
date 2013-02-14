@@ -17,8 +17,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef LIBTVWSDR_H
-#define LIBTVWSDR_H
+#ifndef TVW_SDR_H
+#define TVW_SDR_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdint.h>
 
 typedef struct tvwsdr_dev tvwsdr_dev_t;
 
@@ -33,6 +39,16 @@ int tvwsdr_open(tvwsdr_dev_t **dev);
 int tvwsdr_close(tvwsdr_dev_t *dev);
 
 /*
+ * Get the currently tuned frequency.
+ */
+uint32_t tvwsdr_get_center_freq(tvwsdr_dev_t *dev);
+
+/*
+ * Set the currently tuned frequency.
+ */
+int tvwsdr_set_center_freq(tvwsdr_dev_t *dev, uint32_t freq);
+
+/*
  * Callback function type for USB ISOCH data handling.
  */
 typedef void(*tvwsdr_read_async_cb_t)(unsigned char *buf, unsigned int len, void *ctx);
@@ -41,5 +57,14 @@ typedef void(*tvwsdr_read_async_cb_t)(unsigned char *buf, unsigned int len, void
  * Initiate USB ISOCH data transfers.
  */
 int tvwsdr_read_async(tvwsdr_dev_t *dev, tvwsdr_read_async_cb_t cb, void *ctx);
+
+/*
+ * Set device sample rate.
+ */
+int tvwsdr_set_sample_rate(tvwsdr_dev_t *dev, uint32_t rate);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
