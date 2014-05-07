@@ -6,6 +6,18 @@ https://groups.google.com/d/forum/tvw-sdr (tvw-sdr@googlegroups.com)
 
 Linux userspace driver for TVW750 devices (currently only the TVW750USB/TVW750U).
 
+---
+
+2014-05
+The data returned in the USB ISOCH packets is ITU-R BT.656/VIP formatted.  The
+ancillary data, 16 bytes per frame line, contains the FM audio when tuned to a
+FM station.  `aplay -f cd extract.bin` plays the audio with slight static.
+This leaves, however, 168.5MB of 170MB unaccounted for in my short sample.
+
+`./isoch isoch.bin | grep -v ' 00 00 00 00 ' | cut -d ' ' -f 14-29 | xxd -r -p > extract.bin`
+
+---
+
 In order to generate easily readable packet traces, use the provided XSL:
 * capture a trace under Wireshark
 * disable (sub)protocol dissection (esp. PPP)
