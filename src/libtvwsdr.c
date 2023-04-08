@@ -53,7 +53,7 @@ struct tvwsdr_dev {
 	/* saved configuration information */
 	uint32_t freq;
 	/* isoch work buffer */
-	unsigned char work_buf[4*1024];
+	unsigned char work_buf[8*1024];
 	unsigned int work_buflen;
 };
 
