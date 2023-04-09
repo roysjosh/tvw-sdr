@@ -46,6 +46,7 @@ bool tvw_uc_read_reg(tvwsdr_dev_t *dev, uint16_t reg, uint8_t *val);
 bool tvw_uc_write_reg(tvwsdr_dev_t *dev, uint16_t reg, uint8_t val);
 bool tvw_uc_rmw_reg(tvwsdr_dev_t *dev, uint16_t reg, uint8_t mask, uint8_t val);
 bool tvw_uc_reg_has_bits_set(tvwsdr_dev_t *dev, uint16_t reg, uint8_t mask, uint8_t cmp);
+bool tvw_uc_service_call(tvwsdr_dev_t *dev, uint8_t service_id, uint8_t argc, ...);
 
 /* load firmware to both the TVW & DSP */
 int tvw_load_fw(tvwsdr_dev_t *dev, const char *fn);

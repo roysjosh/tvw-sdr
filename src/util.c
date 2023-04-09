@@ -3,6 +3,7 @@
 #include <err.h>
 #include <fcntl.h>
 #include <string.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -274,6 +275,41 @@ tvw_uc_reg_has_bits_set(tvwsdr_dev_t *dev, uint16_t reg, uint8_t mask, uint8_t c
 	fprintf(stderr, "CMP %04x (%02x & %02x) == %02x ? %s\n", reg, val, mask, cmp, (val & mask) == cmp ? "true" : "false");
 
 	return ((val & mask) == cmp);
+}
+
+bool
+tvw_uc_service_call(tvwsdr_dev_t *dev, uint8_t service_id, uint8_t argc, ...) {
+	bool completed = false;
+	uint8_t i;
+	va_list ap;
+
+	// ensure there isn't a service call already running
+	if (!tvw_uc_reg_has_bits_set(dev, 0xf09f, 0x80, 0)) {
+		return false;
+	}
+
+	// write arguments
+	va_start(ap, argc);
+	for (i = 0; i < argc; i++) {
+		tvw_uc_write_reg(dev, 0xf0a0 + i, (uint8_t)(va_arg(ap, int) & 0xff));
+	}
+	va_end(ap);
+
+	// write service id
+	tvw_uc_write_reg(dev, 0xf09f, 0x80 | service_id);
+
+	// wait for service call to finish
+	for (i = 0; i < 10; i++) {
+		msleep(5);
+		// is the completed flag set?
+		if (tvw_uc_reg_has_bits_set(dev, 0xf09c, 0x80, 0x80)) {
+			// yes, acknowledge observation to 8051 (?)
+			completed = tvw_uc_write_reg(dev, 0xf09c, 0x00);
+			break;
+		}
+	}
+
+	return completed;
 }
 
 int
