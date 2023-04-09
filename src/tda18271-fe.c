@@ -24,7 +24,7 @@
 #include <linux/videodev2.h>
 #include "tda18271-priv.h"
 
-int tda18271_debug = DBG_INFO;
+int tda18271_debug = DBG_INFO | DBG_MAP | DBG_REG | DBG_ADV | DBG_CAL; // was DBG_INFO
 #if 0
 module_param_named(debug, tda18271_debug, int, 0644);
 MODULE_PARM_DESC(debug, "set debug level "

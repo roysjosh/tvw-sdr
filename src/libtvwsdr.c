@@ -18,7 +18,9 @@
  */
 
 #include <endian.h>
+#include <err.h>
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6003 +29,2240 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <libusb.h>
-
-#include "compat.h"
-#include "tda18271.h"
-#include "tda18271-priv.h"
 #include "tvw-reg.h"
 #include "tvw-sdr.h"
-
-#define BULK_TIMEOUT 0
+#include "util.h"
 
 #define NUM_ISOCH_XFERS 15
 #define NUM_ISOCH_PACKETS 32
 
-struct tvwsdr_dev {
-	/* libusb info */
-	libusb_context *ctx;
-	struct libusb_device_handle *devh;
-	struct libusb_transfer **xfer;
-	unsigned char **xfer_buf;
-	tvwsdr_read_async_cb_t cb;
-	void *cb_ctx;
-	/* tuner info */
-	struct dvb_frontend fe;
-	/* saved configuration information */
-	uint32_t freq;
-	/* isoch work buffer */
-	unsigned char work_buf[8*1024];
-	unsigned int work_buflen;
-};
+bool
+tvw_init_tvw_1(tvwsdr_dev_t *dev) {
+	return
+			XR(dev, TVW_IC_STATUS, 0xf00000, 0x100000) &&
+			WR(dev, 0x08a8, 0x0000f0a0) &&
+			WR(dev, 0x08ac, 0x0000f0a8) &&
+			WR(dev, TVW_MPLL_CONTROL, 0x0001a008) &&
+			WR(dev, TVW_FPLL_CONTROL, 0x87000024) &&
+			WR(dev, TVW_XPLL_CONTROL, 0x0018c600) &&
+			WR(dev, TVW_VPLL_CONTROL_0, 0x00c00000) &&
+			WR(dev, TVW_VPLL_CONTROL_1, 0x00000001) &&
+			WR(dev, 0x0938, 0x0001a008) &&
+			WR(dev, 0x093c, 0x87000024) &&
+			WR(dev, 0x0940, 0x004a6400) &&
+			WR(dev, 0x0944, 0x33950000) &&
+			WR(dev, 0x0948, 0x000ad437) &&
+			WR(dev, TVW_CLOCK_CONTROL_0, 0x008ffb3f) &&
+			WR(dev, TVW_CLOCK_CONTROL_1, 0x22070155) &&
+			WR(dev, TVW_RESET_CONTROL, 0x00000200) &&
+			XR(dev, TVW_RESET_CONTROL, ALL, 0x00000200) &&
+			WR(dev, TVW_USC_CTL, 0x00600000) &&
+			WR(dev, TVW_RESET_CONTROL, 0x00000000) &&
+			WR(dev, TVW_RESET_CONTROL, 0x00000180) &&
+			MR(dev, TVW_RESET_CONTROL, ALL, 0x10) &&
+			MR(dev, TVW_MPLL_CONTROL, 0xffffffef, 0) &&
+			MR(dev, TVW_MPLL_CONTROL, 0xffffffec, 0) &&
+			XR(dev, TVW_MPLL_CONTROL, ALL, 0x0001a008) &&
+			MR(dev, 0x0938, 0xffffffef, 0) &&
+			MR(dev, 0x0938, 0xffffffec, 0) &&
+			WR(dev, TVW_RBBM_CTRL, 0x00000001) &&
+			WR(dev, TVW_CLOCK_CONTROL_1, 0x00070155) &&
+			WR(dev, TVW_CLOCK_CONTROL_0, 0x00fffa37) &&
+			MR(dev, TVW_RESET_CONTROL, 0xffffffef, 0) &&
+			MR(dev, TVW_CPU_HALF_BAND, 0, 0x80048004) &&
+			WR(dev, TVW_GPIO_PORT_CONTROL, 0x07ff0000) &&
+			WR(dev, 0x088c, 0x0001cfff) &&
+			WR(dev, TVW_DVSO_PORT_CONTROL, 0x07ff0000) &&
+			WR(dev, TVW_TSI_PORT_CONTROL, 0x07ff0000) &&
+			WR(dev, TVW_AGC_PORT_CONTROL, 0x23ff0000) &&
+			WR(dev, TVW_PCI_PORT_CONTROL, 0x07ff0000) &&
+			WR(dev, 0x096c, 0x00014eff) &&
+			//XR(dev, 0x00a8, ALL, 0x00000000) &&
 
-enum tvwsdr_reg_op {
-	REG_READ,
-	REG_WRITE,
+#if 1
+			MR(dev, TVW_AVBS1R_SETTINGS, ALL, 0x00000004) &&
+			WR(dev, TVW_AVBS1R_OFFSET, 0x00013400) &&
+			WR(dev, TVW_AVBS1R_BUF_SIZE, 0x00001c00) &&
+			WR(dev, TVW_AVBS1W_OFFSET, 0x00013400) &&
+			WR(dev, TVW_AVBS1W_BUF_SIZE, 0x00001c00) &&
+			WR(dev, TVW_AVBS2R_OFFSET, 0x00015000) &&
+			WR(dev, TVW_AVBS2R_BUF_SIZE, 0x00001c00) &&
+			WR(dev, TVW_AVBS2W_OFFSET, 0x00015000) &&
+			WR(dev, TVW_AVBS2W_BUF_SIZE, 0x00001c00) &&
+			MR(dev, TVW_FEAW_SETTINGS, ALL, 0x00001000) &&
+			WR(dev, TVW_FEAW_OFFSET, 0x00012400) &&
+			MR(dev, TVW_RAR_SETTINGS, ALL, 0x00001000) &&
+			WR(dev, TVW_RAR_BUF_SIZE, 0x00001000) &&
+			WR(dev, TVW_RAR_OFFSET, 0x00012400) &&
+			MR(dev, TVW_FEVW_SETTINGS, ALL, 0x00001800) &&
+			WR(dev, TVW_FEVW_FIELDS_INT_THR, 0x00000001) &&
+			WR(dev, TVW_DRS_CONTROL, 0x00000012) &&
+			WR(dev, TVW_FEVW_LUM_INT_OFFSET_1, 0x00010c00) &&
+			WR(dev, TVW_FEVW_LUM_INT_PITCH, 0x00300000) &&
+			MR(dev, TVW_FEVW_SETTINGS, 0xffffffef, 0) &&
+			WR(dev, TVW_FEVW_N_FRAME_BUFS, 0x00000003) &&
+			WR(dev, TVW_FEVW_CHR_INT_OFFSET_1, 0x00011800) &&
+			WR(dev, TVW_FEVW_CHR_INT_PITCH, 0x00300000) &&
+			WR(dev, TVW_FEVW_VBI_PITCH, 0x00000000) &&
+			MR(dev, TVW_RVR_SETTINGS, ALL, 0x00001000) &&
+			WR(dev, TVW_RVR_LUM_INT_OFFSET_1, 0x00010c00) &&
+			WR(dev, TVW_RVR_LUM_INT_PITCH, 0x00300000) &&
+			MR(dev, TVW_RVR_SETTINGS, 0xffffffbf, 0) &&
+			WR(dev, TVW_RVR_N_FRAME_BUFS, 0x00000003) &&
+			WR(dev, TVW_RVR_CHR_INT_OFFSET_1, 0x00011800) &&
+			WR(dev, TVW_RVR_CHR_INT_PITCH, 0x00300000) &&
+			WR(dev, TVW_RVR_VBI_PITCH, 0x00000000) &&
+#endif
 
-	REG_AND,
-	REG_OR,
+			// turn on tuner?
+			MR(dev, TVW_GPIO_PORT_CONTROL, ALL, 0x00000001) &&
 
-	REG_SLEEP,
+#if 1
+			// XXX
+			WR(dev, TVW_DVSO_CRTC_VLINE_INTR, 0x03ff03ff) &&
 
-	/* micro registers at 0x4400 */
-	UC_READ,
-	UC_WRITE,
+			MR(dev, TVW_USC_CTL, ALL, 0x00101100) &&
+			WR(dev, TVW_USC_ANC_WIDTH, 0x00100000) &&
+			WR(dev, TVW_USC_VB_START, 0x00020002) &&
+			WR(dev, TVW_USC_VB_FINISH, 0x000e000e) &&
+			WR(dev, TVW_USC_VD_START, 0x000f000f) &&
+			WR(dev, TVW_USC_VD_FINISH, 0x00ff00ff) &&
 
-	/* ??? */
-	E0_MAGIC,
+			MR(dev, TVW_DRS_CONTROL, ALL, 0) && // XXX
+			MR(dev, TVW_DRS_CONTROL, ALL, 0) && // XXX
 
-	MAX_REG_OP,
-};
+			WR(dev, TVW_DVSO_ANC_ID, 0x01014142) &&
+			MR(dev, TVW_DVSO_VIP2_CTL2, ALL, 0) && // XXX
+			MR(dev, TVW_DVSO_VIP2_CTL, ALL, 0) && // XXX
 
-struct tvwsdr_reg_cmd {
-	enum tvwsdr_reg_op op;
-	uint16_t reg;
-	uint16_t page;
+			MR(dev, TVW_VIDEO_ADC_0_CONTROL, ALL, 0) && // XXX
+			MR(dev, TVW_VIDEO_ADC_1_CONTROL, ALL, 0) && // XXX
+			MR(dev, TVW_RESET_CONTROL, ALL, 0) && // XXX
+
+			//MR(dev, 0x0938, ALL, 0x00000013) &&
+			//MR(dev, 0x0940, 0xffffd6ff, 0x0000d600) &&
+			//MR(dev, 0x0948, )
+			WR(dev, 0x0938, 0x0001a01b) &&
+			WR(dev, 0x0940, 0x004ad600) &&
+			WR(dev, 0x0944, 0x33950000) &&
+			WR(dev, 0x0948, 0x0002dc37) &&
+			WR(dev, 0x0938, 0x0001a00b) &&
+			WR(dev, 0x0938, 0x0001a008) &&
+
+			XR(dev, TVW_IC_STATUS, 0xffffffff, 0x00100797) && // XXX
+
+			MR(dev, TVW_DVSO_PORT_CONTROL, ALL, 0) && // XXX
+			MR(dev, TVW_AUD_SCRAMBLE_CONTROL, ALL, 0) && // XXX
+
+			MR(dev, TVW_RESET_CONTROL, 0xffffff7f, 0) &&
+			MR(dev, TVW_AVBS2W_SETTINGS, ALL, 0) && // XXX
+			MR(dev, TVW_TSI_PORT_CONTROL, ALL, 0x00000001) &&
+			XR(dev, TVW_IC_STATUS, 0xffffffff, 0x00100797) && // XXX
+			MR(dev, TVW_RESET_CONTROL, ALL, 0x00000080) &&
+			//MR(dev, TVW_RESET_CONTROL, 0xfffff000, 0) &&
+			WR(dev, TVW_RESET_CONTROL, 0) &&
+			WR(dev, TVW_ADEC_CONTROL, 0x000004c7) &&
+
+			XR(dev, TVW_IC_STATUS, 0xffffffff, 0x00100797) && // XXX
+			MR(dev, TVW_RESET_CONTROL, ALL, 0) && // XXX
+#endif
+
+			true;
+}
+
+bool
+tvw_init_tvw_2(tvwsdr_dev_t *dev, int stage) {
+	return
+#if 1
+			MR(dev, TVW_CLOCK_CONTROL_0, 0xff7ffffd, 0) &&
+			MR(dev, TVW_VIDEO_ADC_0_CONTROL, ALL, 0x00000004) &&
+			MR(dev, TVW_VIDEO_ADC_1_CONTROL, ALL, 0x00000004) &&
+			MR(dev, 0x08a8, ALL, 0x00000100) &&
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0x00800002) &&
+			// XXX
+			XR(dev, TVW_RESET_CONTROL, 0, 0) && // XXX
+			XR(dev, TVW_RESET_CONTROL, 0, 0) && // XXX
+			XR(dev, TVW_RESET_CONTROL, 0, 0) && // XXX
+			XR(dev, TVW_RESET_CONTROL, 0, 0) && // XXX
+			XR(dev, TVW_RESET_CONTROL, 0, 0) && // XXX
+			MR(dev, TVW_RESET_CONTROL, 0xfffffdff, 0) &&
+			XR(dev, TVW_RESET_CONTROL, 0, 0) && // XXX
+			XR(dev, TVW_RESET_CONTROL, 0, 0) && // XXX
+			XR(dev, TVW_RESET_CONTROL, 0, 0) && // XXX
+			XR(dev, TVW_RESET_CONTROL, 0, 0) && // XXX
+			XR(dev, TVW_RESET_CONTROL, 0, 0) && // XXX
+			MR(dev, TVW_CPU_HALF_BAND, ALL, 0x80048004) &&
+
+			// disable something
+			(stage == 2 ? tvw_e0_magic(dev, 0x00000000, 0x00000150) : true) &&
+
+			WR(dev, 0x6860, 0x00004080) &&
+			WR(dev, 0x6868, 0x0000000c) &&
+			WR(dev, TVW_PEAK_WHITE, 0x00000580) &&
+			WR(dev, 0x6864, 0x00000000) &&
+			WR(dev, 0x6868, 0x0000020c) &&
+			WR(dev, 0x686c, 0x00000410) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_REC_EDGE, 0x00000002) &&
+			WR(dev, 0x6870, 0x00000000) &&
+			WR(dev, 0x6874, 0x00000000) &&
+			WR(dev, 0x6878, 0x00000000) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_LOW_LL_WIN, 0x00001c1a) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_LOW_LOST, 0x00000516) &&
+			WR(dev, 0x687c, 0x00000000) &&
+			WR(dev, 0x6880, 0x10000000) &&
+			WR(dev, 0x6884, 0x00000000) &&
+			WR(dev, 0x6888, 0x00000000) &&
+			WR(dev, 0x688c, 0x00000000) &&
+			WR(dev, TVW_SYNC_STRIP_TP_CTRL, 0x00000000) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_REC_LL, 0x00000000) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_SYNC_SEL, 0x00000002) &&
+			WR(dev, 0x6890, 0x00000000) &&
+			WR(dev, TVW_RESAMP_COUT_SHFT, 0x00000000) &&
+			WR(dev, 0x6894, 0xfb000000) &&
+			WR(dev, 0x689c, 0x00000000) &&
+			WR(dev, TVW_RESAMP_YOUT_SCALE, 0x00000000) &&
+			WR(dev, TVW_MEASURE_SYNCTIP_TH1, 0x00000000) &&
+			WR(dev, 0x68a0, 0xe8003000) &&
+			WR(dev, TVW_MEASURE_SYNCTIP_BP_LP, 0x00005800) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_REC_LOST, 0x00008302) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_FOUND, 0x00008070) &&
+			WR(dev, TVW_CB_PLL_ACC7, 0x00000040) &&
+			WR(dev, TVW_AGC_CONTROL_4_5, (stage == 1 ? 0x81008000 : 0x84008000)) &&
+			WR(dev, TVW_AGC_CONTROL_6_7, 0x00000000) &&
+			WR(dev, TVW_AGC_ACC_MODE, 0x00000000) &&
+			WR(dev, TVW_FRAME_SEN_CTRL, 0x00000000) &&
+			WR(dev, TVW_VBI_ADDR, 0x00000000) &&
+			WR(dev, TVW_VBI_RD_DATA, 0x00000000) &&
+			WR(dev, TVW_LAST_TBC_DB7, 0x00c27f44) &&
+			WR(dev, TVW_DEBUG_CONV_1_2, 0x003e0000) &&
+			WR(dev, TVW_DEBUG_CONV_3_4, 0x00000007) &&
+			WR(dev, TVW_VDEC_MEM_EN, 0x00000000) &&
+			WR(dev, TVW_LINE_COUNT4, 0x00001000) &&
+			WR(dev, TVW_GAIN_AGC, 0x00000000) &&
+			WR(dev, TVW_BURST_AMP, 0x00000000) &&
+			WR(dev, TVW_NEW_COMB_CTRL, 0x00008032) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_SYNC_LOW_TH, 0x87f507f8) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_SYNC_REC_TH, 0x00000000) &&
+			WR(dev, TVW_MEASURE_SYNCTIP_SYNC_REC_CONTROL, 0x00000000) &&
+			WR(dev, TVW_MEASURE_SYNCTIP_TH0, 0x00000000) &&
+			WR(dev, TVW_D2_COEFF_3_2, 0x0fe01000) &&
+			WR(dev, TVW_D2_COEFF_5_4, 0x0ff00ff0) &&
+			WR(dev, TVW_D2_COEFF_7_6, 0x0fe00000) &&
+			WR(dev, 0x68c0, 0x3c000000) &&
+			WR(dev, TVW_D2_COEFF_9_8, 0x00000000) &&
+			WR(dev, TVW_D2_COEFF_11_10, 0x00000000) &&
+			WR(dev, TVW_D2_COEFF_13_12, 0x00000000) &&
+			WR(dev, 0x68c4, 0x00000000) &&
+			WR(dev, TVW_LAST_TBC_DB5_6, 0x00000000) &&
+			WR(dev, TVW_CONTROL_1D1_2, 0x00001000) &&
+			WR(dev, TVW_CONTROL_1D3_4, 0x00001000) &&
+			WR(dev, TVW_CONTROL_TWO, 0x00000020) &&
+			WR(dev, TVW_CBPLL_PROG, 0x10089180) &&
+			WR(dev, TVW_CBCR_OFFSET, 0x00000080) &&
+			WR(dev, TVW_DEBUG_READ, 0x0e00bf00) &&
+			WR(dev, TVW_SECAM_CTRL, 0x00508650) &&
+			WR(dev, TVW_LAST_TBC_DB1_2, 0x00000000) &&
+			WR(dev, TVW_D2_COEFF_15_14, 0x00000000) &&
+			WR(dev, TVW_CB_PLL_ACC5_6, 0x009320ac) &&
+			WR(dev, TVW_CB_PLL_ACC3_4, 0x00000280) &&
+			WR(dev, TVW_CB_PLL_TEST_9_10, 0x000001a3) &&
+			WR(dev, TVW_CB_PLL_ACC1_2, 0x02800080) &&
+			WR(dev, TVW_CB_PLL_TEST_5_6, 0x00100010) &&
+			WR(dev, TVW_CB_PLL_TEST_3_4, 0xfc3ffc3f) &&
+			WR(dev, TVW_RISING_PROG1_2, 0x87000674) &&
+			WR(dev, TVW_TBC_BP_ST3, 0x00000007) &&
+			WR(dev, TVW_RISING_PROG3, 0x01010406) &&
+			WR(dev, TVW_TBC_BP_ST1_2, 0x80c4782e) &&
+			WR(dev, TVW_COMB_3D_ADJUST, 0x000020ac) &&
+			WR(dev, TVW_CB_PLL_TEST_7_8, 0x00100010) &&
+			WR(dev, TVW_CB_PLL_TEST_1_2, 0x86d016a8) &&
+			WR(dev, TVW_BURST_RISING1_2, 0x00000020) &&
+			WR(dev, TVW_YELLOW_DB1_2, 0x04020406) &&
+			WR(dev, TVW_VBI_END_FIELD, 0x80c47828) &&
+			WR(dev, TVW_CATV_DB1_2, (stage == 1 ? 0xe85b281e : 0x285b281e)) &&
+			WR(dev, TVW_IIR_BW, 0xc1850c01) &&
+			WR(dev, TVW_PAUSE_FIX1_2, 0x02d709d3) &&
+			WR(dev, TVW_PAUSE_FIX3_4, 0x00007733) &&
+			WR(dev, TVW_AGC_CONTROL_2_3, 0x00000006) &&
+			WR(dev, TVW_CATV_FIELD, 0x2030800c) &&
+			WR(dev, 0x68d0, 0x20000001) &&
+			WR(dev, TVW_FIELD_RST1, 0x19e72035) &&
+			WR(dev, TVW_FV_WIDE1_2, 0x20002000) &&
+			WR(dev, 0x68d4, 0x18202000) &&
+			WR(dev, TVW_FV_WIDE3_5, 0xffff7800) &&
+			WR(dev, TVW_RESAMP_POWER_THRESHOLD_HIGH, 0x01000120) &&
+			WR(dev, TVW_PAUSE_FIX5_6, 0x02240253) &&
+			WR(dev, TVW_NM_PROG1_2, 0x0a0a1010) &&
+			WR(dev, TVW_NM_PROG3_4, 0x04040707) &&
+			WR(dev, TVW_AFE_AGC_CONTROL, 0x0000b000) &&
+			WR(dev, TVW_SYNC_DETECT_DB1_2, 0x00000022) &&
+			WR(dev, TVW_RESAMP_POWER_THRESHOLD_LOW, 0x0000800b) &&
+			WR(dev, TVW_RESAMP_STATUS, 0x80810001) &&
+			WR(dev, TVW_PEAK_WHITE_THRESH, 0x00006100) &&
+			WR(dev, TVW_PEAK_WHITE_HWIN, 0x03000006) &&
+			WR(dev, TVW_PEAK_WHITE_VWIN, 0x08000000) &&
+			WR(dev, TVW_PEAK_WHITE_AVERAGE, 0x00000800) &&
+			WR(dev, TVW_DEBUG_CONV_5, 0x00000011) &&
+			WR(dev, 0x68d8, 0x00005022) &&
+			WR(dev, TVW_OFFSET_CALC_STATUS, 0x00000000) &&
+			WR(dev, TVW_OFFSET_CALC_LOG, 0x00000000) &&
+			WR(dev, TVW_OFFSET_CALC_COUNT, 0x00001000) &&
+			WR(dev, TVW_VIDEO_TIMING, 0x00000000) &&
+			WR(dev, 0x68c8, 0x00004200) &&
+			WR(dev, TVW_D2_COEFF_17_16, 0x00000000) &&
+			WR(dev, TVW_D2_COEFF_19_18, 0x00740000) &&
+			WR(dev, TVW_DEBUG_MUX_SEL, 0x00000000) &&
+			WR(dev, TVW_FINAL_DB1_2, 0x00000074) &&
+			WR(dev, 0x68cc, 0x406d3080) &&
+			WR(dev, TVW_FINAL_DB3_4, 0xfe01008e) &&
+			WR(dev, TVW_FINAL_DB5_6, 0x50f030ff) &&
+			WR(dev, TVW_FINAL_DB7_8, 0x00800000) &&
+			WR(dev, TVW_FINAL_DB9_10, 0x00200080) &&
+			WR(dev, TVW_FINAL_DB11_12, 0x00328400) &&
+			WR(dev, TVW_LINE_COUNT1, 0x000b1770) &&
+			WR(dev, TVW_FINAL_DB13_14, 0x00000000) &&
+			WR(dev, TVW_FINAL_DB15_16, 0x00000000) &&
+			WR(dev, TVW_FINAL_DB17_18, 0x00000000) &&
+			WR(dev, TVW_RESAMP_YOUT_SHFT, 0x000002cc) &&
+			WR(dev, TVW_FINAL_DB19_20, 0x0b0067be) &&
+			WR(dev, TVW_FINAL_DB21_22, 0x40003fe0) &&
+			WR(dev, TVW_FINAL_DB23_24, 0x00700c32) &&
+			WR(dev, TVW_LINE_COUNT2, 0x00c03020) &&
+			WR(dev, TVW_LINE_COUNT3, 0x0000003c) &&
+			WR(dev, TVW_FINAL_DB25_26, 0x40bf3100) &&
+			WR(dev, TVW_FINAL_DB27, 0x18300140) &&
+			WR(dev, TVW_ACC_CONTROL, 0x00000660) &&
+			WR(dev, TVW_ACC_SPEED, 0x0000e000) &&
+			WR(dev, TVW_ACC_TH_ADJ, 0x22220608) &&
+			WR(dev, TVW_ACC_BURST_POS1_2, 0x00008e8e) &&
+			WR(dev, TVW_ACC_BURST_POS3_4, 0x00000002) &&
+			WR(dev, TVW_BURST_WIDTH1_2, 0x00000000) &&
+			WR(dev, TVW_BURST_WIDTH3_4, 0x0000b030) &&
+			WR(dev, TVW_BURST_WIDTH5_6, 0x00000080) &&
+			WR(dev, TVW_BURST_WIDTH7, 0x091d0020) &&
+			WR(dev, TVW_SYNC_POS1_2, 0x00000010) &&
+			WR(dev, TVW_SYNC_POS3_4, 0x20000106) &&
+			WR(dev, TVW_SYNC_POS5_6, 0x00000000) &&
+			WR(dev, TVW_SYNC_POS7_8, 0x5000030f) &&
+			WR(dev, TVW_FV_WIDE5, 0x04000100) &&
+			WR(dev, TVW_SNAP_DB1_2, 0x01800100) &&
+			WR(dev, TVW_SNAP_DB3, 0xff9f0100) &&
+			WR(dev, TVW_TEAR_DB1, 0x00000000) &&
+			WR(dev, TVW_SYNC_POS9_10, 0x00037002) &&
+			WR(dev, TVW_CCR_ADJUST, 0x2f0e2202) &&
+			WR(dev, TVW_NP_CONTROL, 0x00003def) &&
+			WR(dev, TVW_Q_CONTROL, 0x00204f00) &&
+			WR(dev, 0x6898, 0x3820000d) &&
+			WR(dev, TVW_SYNC_STRIP_V_DETECT_1_2, 0x00600040) &&
+			WR(dev, TVW_SYNC_STRIP_V_DETECT_3_4, 0x40800e40) &&
+			WR(dev, TVW_SYNC_STRIP_V_DETECT_5_6, 0x01000ecc) &&
+			WR(dev, TVW_SYNC_STRIP_V_DETECT_7_8, 0x08000600) &&
+			WR(dev, TVW_SYNC_STRIP_V_DETECT_9, 0x10000a00) &&
+			WR(dev, TVW_BACK_PORCH, 0x30002000) &&
+			WR(dev, TVW_LAST_TBC_DB3_4, 0x00000011) &&
+			WR(dev, TVW_NEG_BP_CTR1_2, 0x00000000) &&
+			WR(dev, TVW_NEG_BP_CTR3_4, 0xd7970580) &&
+			WR(dev, TVW_NEG_BP_CTR4_5, 0x00005717) &&
+			WR(dev, TVW_PAL_MOTION_CTRL1_2, 0x01cc3f3c) &&
+			WR(dev, TVW_MOTION_3D, 0x000010f0) &&
+			WR(dev, TVW_SYNC_LOW_DB1_2, 0x2eec80ff) &&
+			WR(dev, TVW_SYNC_LOW_DB3_4, 0x00004942) &&
+			WR(dev, TVW_SYNC_LOW_DB5, 0x00000294) &&
+			WR(dev, TVW_SYNC_POS11_12, 0x023a8237) &&
+			WR(dev, TVW_VCR_DB1_2, 0x0000aa89) &&
+			WR(dev, TVW_VLOCK_ACQUIRE_CTRL, 0x00002098) &&
+			WR(dev, TVW_VLOCK_ACQUIRE_FIELD_WIN, 0x83001000) &&
+			WR(dev, TVW_VLOCK_ACQUIRE_PAL_FIELD, 0x44444444) &&
+			WR(dev, TVW_GENLOCK_FLAG, 0xa8644444) &&
+			WR(dev, TVW_GENLOCK_VCR, 0x44444444) &&
+			WR(dev, TVW_GENLOCK_REC_SELECT, 0x4c0000b8) &&
+			WR(dev, 0x68e8, 0xf0006200) &&
+			WR(dev, TVW_GENLOCK_TRICK_MODE_1_2, 0x0000070c) &&
+			WR(dev, TVW_RESAMP_CONTROL, 0x00ff3040) &&
+			WR(dev, TVW_GENLOCK_TRICK_MODE_3_4, 0x80c00c08) &&
+			WR(dev, TVW_GENLOCK_TRICK_MODE_5, 0x30402000) &&
+			WR(dev, TVW_GENLOCK_VALID_3D, 0x4030a010) &&
+			WR(dev, TVW_VLOCK_ACQUIRE_FIELD_LOCK, 0x40302010) &&
+			WR(dev, TVW_GENLOCK_BURST_GAIN, 0x00001100) &&
+			WR(dev, TVW_AGC_FAST_20P, 0x00000000) &&
+			WR(dev, TVW_AGC_FAST_HIGH_TH, 0x05000002) &&
+			WR(dev, TVW_OFFSET_CALC_SCH_VALUE, 0x00000e0e) &&
+			WR(dev, TVW_AGC_FAST_LOW_TH, 0x0000000b) &&
+			WR(dev, TVW_AGC_FAST_PEAK_BLACK_TH, 0x000004fc) &&
+			WR(dev, TVW_IF_COEF1, 0x02020e00) &&
+			WR(dev, TVW_VDEC_REC_HLOCK_FLAG, 0x39657666) &&
+			WR(dev, TVW_IF_COEF2, 0x00000000) &&
+			WR(dev, TVW_IF_COEF3, 0x00000000) &&
+			WR(dev, TVW_AFE_DEBUG_AGC, 0x00220000) &&
+			WR(dev, TVW_VDEC_STATUS, 0xffb9ffd6) &&
+			WR(dev, TVW_VDEC_SYNC_LEVEL, 0xff6e00f0) &&
+			WR(dev, TVW_VDEC_CLAMP_OUT, 0x037afe6e) &&
+			WR(dev, TVW_VDEC_LOW_HLOCK_FLAG, 0xf88bfef2) &&
+			WR(dev, TVW_VDEC_LOW_LINE_MEAS, 0x296211df) &&
+			WR(dev, 0x693c, 0x000002bc) &&
+			WR(dev, TVW_AGC_FAST_SPEED_0_1, 0x0a030008) &&
+			WR(dev, TVW_AGC_FAST_SPEED_2_3, 0x00200010) &&
+			WR(dev, TVW_VDEC_REC_LINE_MEAS, 0x00000003) &&
+			WR(dev, 0x6940, 0x00000020) &&
+			WR(dev, 0x6944, 0x0000000f) &&
+			WR(dev, 0x6948, 0x27727777) &&
+			WR(dev, 0x694c, 0x00004060) &&
+			WR(dev, 0x6950, 0x00005090) &&
+			WR(dev, 0x6954, 0x000003cc) &&
+			WR(dev, 0x6958, 0x00000000) &&
+			WR(dev, TVW_SECAM_DIAG, 0x00020000) &&
+			WR(dev, 0x6c7c, 0x00000590) &&
+			WR(dev, 0x6908, 0x00000000) &&
+			WR(dev, 0x691c, 0x00000005) &&
+			WR(dev, TVW_VDEC_VIDEO_FLAGS, 0x0410fdcf) &&
+			WR(dev, TVW_CB_PLL_ACCUM, 0x14401c0a) &&
+			WR(dev, TVW_CB_PLL_FLAG, 0x60404180) &&
+			WR(dev, TVW_CP_CTRL, 0x8c28f098) &&
+			WR(dev, TVW_MEASURED_NOISE, 0xfc005420) &&
+			WR(dev, TVW_NON_STANDARD_FLAG1, 0x00137fff) &&
+			WR(dev, TVW_NON_STANDARD_FLAG2, 0xffec0000) &&
+			WR(dev, TVW_NON_STANDARD_FLAG3, 0x1010f82f) &&
+			WR(dev, TVW_NON_STANDARD_FLAG4, 0x430a4810) &&
+			WR(dev, TVW_BP_LEVEL, 0xf08c194f) &&
+			WR(dev, TVW_NEW_AGC_GAIN, 0x06060200) &&
+			WR(dev, TVW_ACC_GAIN, 0x06080606) &&
+			WR(dev, TVW_DEMOD_IIR, 0x04380808) &&
+			WR(dev, TVW_ABS_SQ_BURST_IIR, 0x01200120) &&
+			WR(dev, TVW_FIELD_V_POS, 0x03100000) &&
+			WR(dev, TVW_RESAMP0_DEBUG, 0x01200100) &&
+			WR(dev, TVW_CLAMP_DEBUG, 0x000204ff) &&
+			WR(dev, TVW_VFLIP_PROG, 0x20f20560) &&
+			WR(dev, TVW_PAL_VFLIP_TH1_2, 0x304a0a20) &&
+			WR(dev, TVW_PAL_VFLIP_TH3_4, 0x1e40f20a) &&
+			WR(dev, TVW_VFLIP_MAX1_2, 0x0a404400) &&
+			WR(dev, TVW_VFLIP_MAX3_4, 0x2832423c) &&
+			WR(dev, TVW_VFLIP_MAX5_6, 0xff404100) &&
+			WR(dev, TVW_VFLIP_CK_SNAP, 0x050e4000) &&
+			WR(dev, TVW_STANDARD_CONTROL1_2, 0x7010020e) &&
+			WR(dev, TVW_AUTO_SM1, 0x0a085000) &&
+			WR(dev, TVW_AUTO_VFLIP1_2, 0x64648440) &&
+			WR(dev, TVW_AUTO_VFLIP3_4, 0x8b000240) &&
+			WR(dev, TVW_AUTO_VFLIP5_6, 0x04b41eb4) &&
+			WR(dev, TVW_SCART_CTRL, 0x58ff2000) &&
+			WR(dev, TVW_AUTO_READ1, 0x20640650) &&
+			WR(dev, TVW_VFLIP1_2_ON, 0x00392064) &&
+			WR(dev, TVW_CBPLL_ABS, 0x019a01ea) &&
+			WR(dev, TVW_LPF_LL, 0x004005fa) &&
+			WR(dev, TVW_FPLL_DBG_PORT, 0x817a400a) &&
+			WR(dev, TVW_NOISE_MEASURE_CONTROL, 0x06406040) &&
+			WR(dev, TVW_NOISE_MEASURE_VCOUNT_WINDOW, 0x009b0000) &&
+			WR(dev, TVW_SECAM_SEP_DR6, 0x00000f68) &&
+			WR(dev, TVW_SECAM_SEP_DR7, 0x28000000) &&
+			WR(dev, TVW_SECAM_SEP_DR8, 0x00000000) &&
+			WR(dev, TVW_SECAM_SEP_DR9, 0xfffff000) &&
+			WR(dev, TVW_SECAM_SEP_DR10, 0x11302020) &&
+			WR(dev, TVW_SECAM_SEP_DR11, 0x000a0a0a) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP16, 0x00000000) &&
+			WR(dev, TVW_SECAM_CONTROL3, 0x00000000) &&
+			WR(dev, TVW_SECAM_CONTROL5, 0x00000000) &&
+			WR(dev, 0x66d8, 0x0f802f00) &&
+			WR(dev, 0x66dc, 0x4a001f80) &&
+			WR(dev, TVW_TBC_SM_CTRL, 0x00000a0a) &&
+			WR(dev, TVW_TBC_SM_VBI_WIND_START, 0x14001400) &&
+			WR(dev, TVW_MEMORY_MARGIN_CTL0, 0x7c0081be) &&
+			WR(dev, TVW_MEMORY_MARGIN_CTL1, 0x00000000) &&
+			WR(dev, TVW_FSC_PROG1_2, 0x00000000) &&
+			WR(dev, 0x650c, 0x0e1c0000) &&
+			WR(dev, TVW_FSC_PROG3_4, 0x3b80ffff) &&
+			WR(dev, TVW_VSYNC_SLICE1_4, 0x00000000) &&
+			WR(dev, TVW_ABS_SQ_BURST_IIR_N_EN, 0x00000000) &&
+			WR(dev, TVW_ABS_SQ_BURST_IIR_P_EP, 0x00000000) &&
+			WR(dev, TVW_VDEC_FIFO_CTL, 0x000f0000) &&
+			WR(dev, TVW_VDEC_INTERRUPT_ENABLE, 0xffff2440) &&
+			WR(dev, TVW_VDEC_INTERRUPT_CLEAR, 0x0000ff00) &&
+			WR(dev, TVW_VDEC_LOCK_INTR_CTRL, 0xffffffff) &&
+			WR(dev, TVW_VDEC_MV_INTR_CTRL, 0x00ff0000) &&
+			WR(dev, TVW_VDEC_TRICK_MODE_INTR_CTRL, 0x20802020) &&
+			WR(dev, TVW_VDEC_STD_INTR_CTRL, 0x40c64040) &&
+			WR(dev, TVW_VDEC_NOISE_MEASURE_HIGH_INTR_CTRL, 0x0000c280) &&
+			WR(dev, TVW_VDEC_NOISE_MEASURE_LOW_INTR_CTRL, 0x10101410) &&
+			WR(dev, TVW_VDEC_NOISE_INTR_TRIGGER, 0x8f781058) &&
+			WR(dev, TVW_VDEC_VSYNC_INTR_CTRL, 0xf532146f) &&
+			WR(dev, TVW_VDEC_FIELD_ID_INTR_CTRL, 0x1e1e241e) &&
+			WR(dev, TVW_VDEC_DEBUG1_INTR_CTRL, 0x8e8108b7) &&
+			WR(dev, TVW_VDEC_MD_CTRL, 0xf8319999) &&
+			WR(dev, TVW_MOTION_1D_2D, 0xd562b06c) &&
+			WR(dev, TVW_TRICK_AUTO_STANDARD1_2, 0xdc826001) &&
+			WR(dev, TVW_VSYNC_SLICE3, 0x28124f3d) &&
+			WR(dev, TVW_SAME_CH_3D1_2, 0x0998cf2b) &&
+			WR(dev, 0x6568, 0xf1f54b1b) &&
+			WR(dev, 0x656c, 0x3c32ef3d) &&
+			WR(dev, TVW_SECAM_SEP_DB0, 0xa9983320) &&
+			WR(dev, TVW_SECAM_SEP_DB1, 0x34d9433e) &&
+			WR(dev, TVW_SECAM_SEP_DB2, 0x1fa39825) &&
+			WR(dev, TVW_SECAM_SEP_DB3, 0x4a9e522b) &&
+			WR(dev, TVW_SECAM_SEP_DB4, 0x5cfb4e7b) &&
+			WR(dev, TVW_SECAM_SEP_DB5, 0x2452d0c3) &&
+			WR(dev, TVW_SECAM_SEP_DB6, 0xea9efd2b) &&
+			WR(dev, TVW_SECAM_SEP_DB7, 0xd8f051db) &&
+			WR(dev, TVW_SECAM_SEP_DB8, 0x8020bf3d) &&
+			WR(dev, TVW_SECAM_SEP_DB9, 0x14188025) &&
+			WR(dev, TVW_SECAM_SEP_DB10, 0x0d601c1f) &&
+			WR(dev, TVW_SECAM_SEP_DB11, 0x20000240) &&
+			WR(dev, TVW_SECAM_SEP_DB12, 0x88888888) &&
+			WR(dev, TVW_SECAM_SEP_DB13, 0x88887888) &&
+			WR(dev, TVW_SECAM_SEP_DB14, 0x88886788) &&
+			WR(dev, TVW_SECAM_SEP_DB15, 0x56780004) &&
+			WR(dev, TVW_SECAM_SEP_DB16, 0x45680023) &&
+			WR(dev, TVW_SECAM_SEP_DR0, 0x23460002) &&
+			WR(dev, TVW_SECAM_SEP_DR1, 0x12350001) &&
+			WR(dev, TVW_SECAM_SEP_DR2, 0x00000000) &&
+			WR(dev, TVW_SECAM_SEP_DR3, 0x44030a05) &&
+			WR(dev, TVW_SECAM_SEP_DR12, 0x70002050) &&
+			WR(dev, TVW_SECAM_SEP_DR13, 0x08608300) &&
+			WR(dev, TVW_SECAM_SEP_DR14, 0x28144000) &&
+			WR(dev, TVW_SECAM_SEP_DR15, 0x28142800) &&
+			WR(dev, TVW_SECAM_SEP_DR16, 0x14288000) &&
+			WR(dev, 0x65f8, 0x70f0001f) &&
+			WR(dev, TVW_SECAM_AGC_CTRL1, 0x0a283e40) &&
+			WR(dev, TVW_SECAM_AGC_CTRL2, 0xbe100b38) &&
+			WR(dev, TVW_SECAM_AGC_CTRL3, 0x04ff1010) &&
+			WR(dev, TVW_SECAM_CTRL0, 0x08467f57) &&
+			WR(dev, TVW_SECAM_CTRL1, 0x0a603032) &&
+			WR(dev, TVW_SECAM_CTRL2, 0x10080b20) &&
+			WR(dev, TVW_SECAM_BURST2, 0x000027fd) &&
+			WR(dev, TVW_SECAM_CLAMP_CTRL3, 0x00000008) &&
+			WR(dev, TVW_SECAM_DEEMPHASIS_COEFF, 0x000007f0) &&
+			WR(dev, TVW_SECAM_SEPARATION_CNTRL, 0x0000001d) &&
+			WR(dev, TVW_SECAM_EMPHASIS_BOOST, 0x000007cd) &&
+			WR(dev, TVW_SECAM_DIAG_DATA, 0x00000064) &&
+			WR(dev, TVW_SECAM_CLAMP_CTRL4, 0x020006bd) &&
+			WR(dev, TVW_SECAM_AGC_CTRL4, 0x07d80003) &&
+			WR(dev, TVW_SECAM_SEPARATION_CTRL1, 0x001107f3) &&
+			WR(dev, TVW_SECAM_CONTROL, 0x0009001e) &&
+			WR(dev, TVW_SECAM_CLOCHE_COEFB0, 0x07da07dc) &&
+			WR(dev, TVW_SECAM_CLOCHE_COEFB1, 0x00530018) &&
+			WR(dev, TVW_SECAM_CLOCHE_COEFA1, 0x07920032) &&
+			WR(dev, TVW_SECAM_NOISE_SCALING_THRESH_LOW, 0x028606d2) &&
+			WR(dev, TVW_SECAM_NOISE_SCALING_SLOPE, 0xc8c802c8) &&
+			WR(dev, TVW_SECAM_NOISE_MEASURE_CONTROL, 0x000014a7) &&
+			WR(dev, TVW_SECAM_NOISE_MEASURE_VCOUNT_WINDOW, 0x80001460) &&
+			WR(dev, TVW_SECAM_NOISE_MEASUREMENT, 0x00000000) &&
+			WR(dev, TVW_SECAM_CARRIER_AMP_CTRL, 0x00010000) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP1, 0x00000000) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP2, 0x00000000) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP3, 0x00000000) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP4, 0x00080000) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP5, 0x112a0028) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP6, 0x00440e58) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP7, 0x80be2204) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP8, 0x04042cb4) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP9, 0x00000ac3) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP10, 0x61500000) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP11, 0x64304180) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP12, 0xa028a028) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP13, 0x001402ff) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP14, 0x00000000) &&
+			WR(dev, TVW_SECAM_SEP_DR4, 0x8f7f12f0) &&
+			WR(dev, TVW_SECAM_SEP_DR5, 0x00b13b34) &&
+			WR(dev, 0x6b74, 0x00000043) &&
+			WR(dev, 0x6b78, 0x00036fc8) &&
+			WR(dev, 0x6b7c, 0x00041eaf) &&
+			WR(dev, 0x6b80, 0x0006df91) &&
+			WR(dev, 0x6b88, 0x00083d5f) &&
+			WR(dev, 0x6b8c, 0x0000800f) &&
+			WR(dev, 0x6b54, 0x00000110) &&
+			WR(dev, 0x6b58, 0x00040400) &&
+			WR(dev, 0x6940, 0x00000020) &&
+			WR(dev, 0x6908, 0x00000000) &&
+			WR(dev, 0x6974, 0x00000000) &&
+			WR(dev, 0x6978, 0x00000000) &&
+			WR(dev, TVW_QM_CONTROL, 0x003f0003) &&
+			WR(dev, 0x6abc, 0x0c000202) &&
+			WR(dev, TVW_TBC_SM_VBI_V_START, 0xf0080c00) &&
+			WR(dev, TVW_TBC_SM_VBI_V_END, 0x070b0008) &&
+			WR(dev, TVW_PWM3_CLAMP_GAIN, 0x00000000) &&
+			WR(dev, TVW_VPLL_DBG_PORT, 0x00000001) &&
+			WR(dev, 0x697c, 0x00000001) &&
+			WR(dev, 0x6ac4, 0x00000001) &&
+			WR(dev, 0x6ac0, 0x00000000) &&
+			WR(dev, TVW_TBC_CBCR_DELAY, 0x00000000) &&
+			WR(dev, TVW_TBC_OFFSET_SKEW, 0x00000000) &&
+			WR(dev, TVW_TBC_PAUSE, (stage == 1 ? 0xf8000000 : 0x00000000)) &&
+			WR(dev, TVW_TBC_PLL_OVER_GAIN, (stage == 1 ? 0x00003d78 : 0x00000000)) &&
+			WR(dev, TVW_TBC_LINE_BUF_FREQ_DIF, 0x00000000) &&
+			WR(dev, TVW_TBC_LINE_BUF_READ_DISTANCE, (stage == 1 ? 0xffffffff : 0x00000000)) &&
+			WR(dev, 0x68a4, 0x00000000) &&
+			WR(dev, 0x6ae8, 0x00000000) &&
+			WR(dev, 0x6ad0, 0x02000200) &&
+			WR(dev, 0x6ad4, 0x00000000) &&
+			WR(dev, 0x6ad8, 0x02000200) &&
+			WR(dev, 0x6adc, 0x00000000) &&
+			WR(dev, 0x6ae0, 0x02000200) &&
+			WR(dev, 0x6ae4, 0x00000000) &&
+			WR(dev, 0x6aec, 0x00000000) &&
+			WR(dev, 0x6af0, 0x07f80000) &&
+			WR(dev, 0x6af4, 0x00001000) &&
+			WR(dev, 0x6af8, 0x00000000) &&
+			WR(dev, 0x6afc, 0x00000000) &&
+			WR(dev, 0x6b00, 0x00000000) &&
+			WR(dev, 0x6b04, 0x00000000) &&
+			WR(dev, 0x6a10, 0x00000000) &&
+			WR(dev, 0x6a14, 0x00000000) &&
+			WR(dev, 0x6a18, 0x00000000) &&
+			WR(dev, 0x6a1c, 0x00000000) &&
+			WR(dev, 0x6a20, 0x00000000) &&
+			WR(dev, 0x6a58, 0x00000004) &&
+			WR(dev, 0x6a24, 0x0000001c) &&
+			WR(dev, 0x6a28, 0x00000000) &&
+			WR(dev, 0x6a2c, 0x00000000) &&
+			WR(dev, 0x6a30, 0x00000000) &&
+			WR(dev, 0x6a40, 0x00000000) &&
+			WR(dev, 0x6a44, 0x00000000) &&
+			WR(dev, 0x6a48, 0x00000003) &&
+			WR(dev, 0x6b08, 0x00008000) &&
+			WR(dev, 0x6a4c, 0x00000000) &&
+			WR(dev, 0x6a50, 0x07380060) &&
+			WR(dev, 0x6a54, 0x0000063c) &&
+			WR(dev, 0x6a5c, 0x000000c0) &&
+			WR(dev, 0x6a60, 0x00000200) &&
+			WR(dev, 0x6a64, 0xc1220000) &&
+			WR(dev, 0x6a68, 0x93281c00) &&
+			WR(dev, 0x6a6c, 0x608f0000) &&
+			WR(dev, 0x6a70, 0x00000a00) &&
+			WR(dev, 0x6a74, 0xeca86420) &&
+			WR(dev, 0x6a78, 0x00001040) &&
+			WR(dev, 0x6a7c, 0x01f40023) &&
+			WR(dev, 0x6a80, 0x00000032) &&
+			WR(dev, 0x6a84, 0x00000000) &&
+			WR(dev, 0x6a88, 0x00000000) &&
+			WR(dev, 0x68f0, 0x00000000) &&
+			WR(dev, 0x6a9c, 0x00200000) &&
+			WR(dev, 0x6aa0, 0x38080010) &&
+			WR(dev, 0x6aa4, 0x0038022f) &&
+			WR(dev, 0x6aa8, 0x00003038) &&
+			WR(dev, 0x6ab0, 0x00001020) &&
+			WR(dev, 0x6ab4, 0x00800040) &&
+			WR(dev, 0x6ab8, 0x010000c0) &&
+			WR(dev, TVW_CKILL_5_6, 0x00000080) &&
+			WR(dev, 0x68f8, 0x00000006) &&
+			WR(dev, 0x68a8, 0x00002000) &&
+			WR(dev, 0x696c, 0x00000000) &&
+			WR(dev, 0x6938, 0x00000000) &&
+			WR(dev, 0x6b50, 0x01000700) &&
+			WR(dev, 0x6b20, 0x000000a6) &&
+			WR(dev, 0x6b28, 0x000000e4) &&
+			WR(dev, 0x6b24, 0x000000e4) &&
+			MR(dev, 0x6904, 0x00f0ef70, (stage == 1 ? 0xe400100f : 0xe40f000f)) &&
+			MR(dev, TVW_CPU_BURST_PHASE, 0xfffcf800, 0x000306aa) &&
+			MR(dev, TVW_CPU_PAL_MOD, ALL, 0x00020000) &&
+			WR(dev, TVW_CKILL_5_6, 0x00000080) &&
+			MR(dev, TVW_CKILL_DB3_4, 0xfff8ffff, 0x00020000) &&
+			WR(dev, TVW_W9_10, 0x01000100) &&
+			WR(dev, TVW_W11, 0x01000100) &&
+			WR(dev, TVW_YC_CONTROL, 0x00000001) &&
+			WR(dev, TVW_YC_DB1, 0x00000079) &&
+			WR(dev, TVW_NM_DB1_2, 0x00005ceb) &&
+			WR(dev, TVW_CKILL_DB1_2, 0x001c001c) &&
+			WR(dev, 0x6c1c, 0x0002a25a) &&
+			WR(dev, 0x6cac, 0x00000000) &&
+			WR(dev, 0x6cb0, 0x00000000) &&
+			WR(dev, 0x6cb4, 0x00000000) &&
+			WR(dev, 0x6cb8, 0x00000000) &&
+			WR(dev, 0x6cbc, 0x00000000) &&
+			WR(dev, 0x6cc0, 0x00000000) &&
+			WR(dev, 0x6cc4, 0x00000000) &&
+			WR(dev, 0x6cc8, 0x00000000) &&
+			WR(dev, 0x6ccc, 0x00000000) &&
+			WR(dev, 0x6cd0, 0x00000000) &&
+			WR(dev, 0x6cd4, 0x00000000) &&
+			WR(dev, 0x6cd8, 0x00001001) &&
+			WR(dev, 0x6cdc, 0x00009009) &&
+			WR(dev, 0x6ce0, 0x00f3cf3c) &&
+			WR(dev, 0x6ce4, 0x0013b13b) &&
+			WR(dev, 0x6ce8, 0x00161161) &&
+			WR(dev, 0x6cec, 0x0043c43c) &&
+			WR(dev, 0x6c7c, 0x00001d90) &&
+			WR(dev, 0x6cf0, 0x03008740) &&
+			WR(dev, 0x6c5c, 0x0f1a8080) &&
+			WR(dev, 0x6c78, 0x20202cc0) &&
+			MR(dev, 0x6ca0, ALL, 0x00000003) &&
+			WR(dev, 0x6c8c, 0xff0000ff) &&
+			WR(dev, 0x6c90, 0xffffffff) &&
+			WR(dev, 0x6cf4, 0x676780d0) &&
+#endif
+
+			true;
+}
+
+bool
+tvw_init_tvw_3(tvwsdr_dev_t *dev) {
+	return
+			MR(dev, 0x6ad4, ALL, 0) && // XXX unknown mask
+			MR(dev, 0x6ad0, ALL, 0) && // XXX unknown mask
+			MR(dev, 0x6a90, ALL, 0) && // XXX unknown mask
+			MR(dev, 0x6ae0, ALL, 0) && // XXX unknown mask
+			MR(dev, 0x6ad8, ALL, 0) && // XXX unknown mask
+			MR(dev, 0x68f0, ALL, 0) && // XXX unknown mask
+			WR(dev, 0x6b3c, 0x00000022) &&
+			MR(dev, 0x6b40, ALL, 0) && // XXX unknown mask
+			WR(dev, 0x6b44, 0x1b2f806b) &&
+			MR(dev, TVW_RBBM_CTRL, ALL, 0) && // XXX unknown mask
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0) && // XXX unknown mask
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0) && // XXX unknown mask
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0) && // XXX unknown mask
+			MR(dev, TVW_DVSO_PORT_CONTROL, ALL, 0) && // XXX unknown mask
+			MR(dev, TVW_CLOCK_CONTROL_0, 0xfffffff8, 0) && // XXX
+			MR(dev, TVW_CLOCK_CONTROL_0, 0xffffdfff, 0) &&
+			MR(dev, TVW_CLOCK_CONTROL_0, 0xffff5fff, 0) &&
+
+			true;
+}
+
+bool
+tvw_finish_init_tvw(tvwsdr_dev_t *dev) {
+	return
+			MR(dev, TVW_GPIO_OUTPUT_ENABLE, ALL, 0x0000033e) &&
+			MR(dev, TVW_GPIO_OUTPUT_VALUE, ALL, 0x0000000c) &&
+
+			//WR(dev, TVW_SPIC_PRESCALE, 0x0000000a) &&
+			WR(dev, TVW_SPIC_PRESCALE, 0x00000001) &&
+
+			true;
+}
+
+bool
+tvw_init_8051(tvwsdr_dev_t *dev) {
+	return
+			MR(dev, TVW_GPIO_OUTPUT_VALUE, ALL, 0) && // XXX unknown values
+
+			MR(dev, 0x08f8, 0xfffff0f0, 0) &&
+			MR(dev, TVW_VIDEO_INPUT_0_CONTROL, ALL, 0xa01f0000) &&
+			MR(dev, TVW_VIDEO_ADC_0_CONTROL, 0x20003080, 0x000f8524) &&
+			MR(dev, TVW_VIDEO_INPUT_1_CONTROL, ALL, 0x001f0000) &&
+			MR(dev, TVW_VIDEO_ADC_1_CONTROL, 0x20003080, 0x020f853e) &&
+			// power up 8051?
+			WU(dev, 0xf008, 0xff) &&
+			WU(dev, 0xf009, 0x7f) &&
+			WU(dev, 0xf00a, 0xdf) &&
+			WU(dev, 0xf101, 0x00) &&
+			WU(dev, 0xf00d, 0xff) &&
+			MU(dev, 0xf00b, UC_ALL, 0xc0) &&
+			MU(dev, 0xf301, UC_ALL, 0x1f) &&
+			WU(dev, 0xf00e, 0x80) &&
+			WU(dev, 0xf01a, 0xff) &&
+			WU(dev, 0xf01b, 0xfc) &&
+			WU(dev, 0xf01e, 0xff) &&
+			MU(dev, 0xf02b, UC_ALL, 0x30) &&
+			MU(dev, 0xf00b, 0xd8, 0) &&
+			// ?
+			WU(dev, 0xf008, 0x50) &&
+			WU(dev, 0xf009, 0x00) &&
+			WU(dev, 0xf00a, 0x00) &&
+			MU(dev, 0xf02b, 0xef, 0) &&
+			MU(dev, 0xf00b, 0xbf, 0) &&
+			MU(dev, 0xf00d, 0x9f, 0) &&
+			// ?
+			WU(dev, 0xf00d, 0xff) &&
+			MU(dev, 0xf00c, UC_ALL, 0x07) &&
+			MU(dev, 0xf00b, UC_ALL, 0xc0) &&
+			WU(dev, 0xf00d, 0) &&
+			MU(dev, 0xf00c, 0xf8, 0) &&
+			MU(dev, 0xf00b, 0x3f, 0) &&
+			// ensure 8051 is held in reset
+			MU(dev, 0xf089, UC_ALL, 0x80) &&
+			// clear out service call registers
+			WU(dev, 0xf09f, 0) &&
+			WU(dev, 0xf09c, 0) &&
+			WU(dev, 0xf09d, 0) &&
+			WU(dev, 0xf09e, 0) &&
+			// enable firmware upload
+			WU(dev, 0xf02a, 0x40) &&
+			// ?
+			WU(dev, 0xf081, 0) &&
+			WU(dev, 0xf082, 0) &&
+			WU(dev, 0xf083, 0) &&
+			WU(dev, 0xf084, 0) &&
+			WU(dev, 0xf085, 0) &&
+			WU(dev, 0xf086, 0) &&
+			WU(dev, 0xf090, 0) &&
+			WU(dev, 0xf091, 0) &&
+			WU(dev, 0xf092, 0) &&
+			WU(dev, 0xf093, 0) &&
+			WU(dev, 0xf094, 0) &&
+			WU(dev, 0xf095, 0) &&
+			WU(dev, 0xf096, 0);
+}
+
+bool
+tvw_finish_init_8051(tvwsdr_dev_t *dev) {
+	return
+			// disable firmware upload
+			MU(dev, 0xf02a, ~0x40, 0) &&
+			// seed service call registers with firmware info
+			// 0x8e1a is T507.bin fw size
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x8e) &&
+			WU(dev, 0xf0a1, 0x1a) &&
+			// ?
+			WU(dev, 0xf0a2, 0xef) &&
+			WU(dev, 0xf0a3, 0x36) &&
+			// service #
+			WU(dev, 0xf09f, 0x80 | 0x3c) &&
+			// clear 8051 reset
+			MU(dev, 0xf089, ((uint8_t)~0x80), 0) &&
+			// wait for 8051 to start
+			MSLEEP(1000) &&
+			// XXX wait for bits
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+			// XXX wait for bits
+
+			// ?
+			MU(dev, 0xf00b, 0xbf, 0) &&
+			MU(dev, 0xf00b, 0x7f, 0) &&
+			MU(dev, 0xf024, 0x7f, 0) &&
+
+#if 1 // XXX 0
+			// get version
+			XU(dev, 0xf024, 0x7f, 0x00) &&
+			XU(dev, 0xf025, 0xff, 0x04) &&
+			XU(dev, 0xf026, 0xff, 0x17) &&
+
+			// XXX many service calls
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x0c) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x0d) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x0e) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x0f) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x10) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x11) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x12) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x13) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x14) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x15) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x16) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x17) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x18) &&
+			WU(dev, 0xf0a1, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x0c) &&
+			WU(dev, 0xf0a1, 0x01) &&
+			WU(dev, 0xf0a2, 0xc2) &&
+			WU(dev, 0xf0a3, 0x60) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x0d) &&
+			WU(dev, 0xf0a1, 0x01) &&
+			WU(dev, 0xf0a2, 0xc2) &&
+			WU(dev, 0xf0a3, 0x60) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x0e) &&
+			WU(dev, 0xf0a1, 0x01) &&
+			WU(dev, 0xf0a2, 0xc2) &&
+			WU(dev, 0xf0a3, 0x60) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x1d) &&
+			WU(dev, 0xf0a1, 0x07) &&
+			WU(dev, 0xf0a2, 0xc2) &&
+			WU(dev, 0xf0a3, 0x60) &&
+			WU(dev, 0xf0a4, 0xd7) &&
+			WU(dev, 0xf0a5, 0x07) &&
+			WU(dev, 0xf0a6, 0xc8) &&
+			WU(dev, 0xf0a7, 0x22) &&
+			WU(dev, 0xf0a8, 0xd5) &&
+			WU(dev, 0xf0a9, 0x33) &&
+			WU(dev, 0xf0aa, 0xc6) &&
+			WU(dev, 0xf0ab, 0x35) &&
+			WU(dev, 0xf0ac, 0xcd) &&
+			WU(dev, 0xf0ad, 0x15) &&
+			WU(dev, 0xf0ae, 0xc3) &&
+			WU(dev, 0xf0af, 0x04) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x1e) &&
+			WU(dev, 0xf0a1, 0x04) &&
+			WU(dev, 0xf0a2, 0xd5) &&
+			WU(dev, 0xf0a3, 0x00) &&
+			WU(dev, 0xf0a4, 0xc6) &&
+			WU(dev, 0xf0a5, 0x00) &&
+			WU(dev, 0xf0a6, 0xcd) &&
+			WU(dev, 0xf0a7, 0x00) &&
+			WU(dev, 0xf0a8, 0xc3) &&
+			WU(dev, 0xf0a9, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x0f) &&
+			WU(dev, 0xf0a1, 0x01) &&
+			WU(dev, 0xf0a2, 0xc2) &&
+			WU(dev, 0xf0a3, 0x60) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x1f) &&
+			WU(dev, 0xf0a1, 0x07) &&
+			WU(dev, 0xf0a2, 0xc2) &&
+			WU(dev, 0xf0a3, 0x60) &&
+			WU(dev, 0xf0a4, 0xd7) &&
+			WU(dev, 0xf0a5, 0x07) &&
+			WU(dev, 0xf0a6, 0xc8) &&
+			WU(dev, 0xf0a7, 0x22) &&
+			WU(dev, 0xf0a8, 0xd5) &&
+			WU(dev, 0xf0a9, 0x33) &&
+			WU(dev, 0xf0aa, 0xc6) &&
+			WU(dev, 0xf0ab, 0x35) &&
+			WU(dev, 0xf0ac, 0xcd) &&
+			WU(dev, 0xf0ad, 0x15) &&
+			WU(dev, 0xf0ae, 0xc3) &&
+			WU(dev, 0xf0af, 0x04) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x20) &&
+			WU(dev, 0xf0a1, 0x04) &&
+			WU(dev, 0xf0a2, 0xd5) &&
+			WU(dev, 0xf0a3, 0x00) &&
+			WU(dev, 0xf0a4, 0xc6) &&
+			WU(dev, 0xf0a5, 0x00) &&
+			WU(dev, 0xf0a6, 0xcd) &&
+			WU(dev, 0xf0a7, 0x00) &&
+			WU(dev, 0xf0a8, 0xc3) &&
+			WU(dev, 0xf0a9, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x10) &&
+			WU(dev, 0xf0a1, 0x01) &&
+			WU(dev, 0xf0a2, 0xc2) &&
+			WU(dev, 0xf0a3, 0x60) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x21) &&
+			WU(dev, 0xf0a1, 0x07) &&
+			WU(dev, 0xf0a2, 0xc2) &&
+			WU(dev, 0xf0a3, 0x60) &&
+			WU(dev, 0xf0a4, 0xd7) &&
+			WU(dev, 0xf0a5, 0x07) &&
+			WU(dev, 0xf0a6, 0xc8) &&
+			WU(dev, 0xf0a7, 0x22) &&
+			WU(dev, 0xf0a8, 0xd5) &&
+			WU(dev, 0xf0a9, 0x33) &&
+			WU(dev, 0xf0aa, 0xc6) &&
+			WU(dev, 0xf0ab, 0x35) &&
+			WU(dev, 0xf0ac, 0xcd) &&
+			WU(dev, 0xf0ad, 0x15) &&
+			WU(dev, 0xf0ae, 0xc3) &&
+			WU(dev, 0xf0af, 0x04) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x22) &&
+			WU(dev, 0xf0a1, 0x04) &&
+			WU(dev, 0xf0a2, 0xd5) &&
+			WU(dev, 0xf0a3, 0x00) &&
+			WU(dev, 0xf0a4, 0xc6) &&
+			WU(dev, 0xf0a5, 0x00) &&
+			WU(dev, 0xf0a6, 0xcd) &&
+			WU(dev, 0xf0a7, 0x00) &&
+			WU(dev, 0xf0a8, 0xc3) &&
+			WU(dev, 0xf0a9, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x03) &&
+			WU(dev, 0xf0a1, 0x01) &&
+			WU(dev, 0xf0a2, 0x32) &&
+			WU(dev, 0xf0a3, 0x18) &&
+			WU(dev, 0xf0a4, 0x6a) &&
+			WU(dev, 0xf0a5, 0x18) &&
+			WU(dev, 0xf0a6, 0x6a) &&
+			WU(dev, 0xf0a7, 0x18) &&
+			WU(dev, 0xf0a8, 0x6a) &&
+			WU(dev, 0xf0a9, 0x18) &&
+			WU(dev, 0xf0aa, 0x6a) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+#endif
+
+			MU(dev, 0xf117, 0x3f, 0x70) &&
+
+			MU(dev, 0xf00e, 0x7f, 0) && // XXX
+			MU(dev, 0xf00f, 0x00, 0x18) && // XXX
+
+			// ???
+			MU(dev, 0xf480, 0xbf, 0) &&
+			MU(dev, 0xf00d, UC_ALL, 0x10) &&
+			MU(dev, 0xf00d, 0xef, 0) &&
+			MU(dev, 0xf480, UC_ALL, 0x0c) && // XXX
+			WU(dev, 0xf481, 0x00) && // XXX
+			WU(dev, 0xf48d, 0x00) && // XXX
+			WU(dev, 0xf482, 0x80) && // XXX
+			WU(dev, 0xf483, 0x00) && // XXX
+			WU(dev, 0xf484, 0x00) && // XXX
+			WU(dev, 0xf488, 0x06) && // XXX
+			WU(dev, 0xf48c, 0x00) && // XXX
+			WU(dev, 0xf48b, 0x00) && // XXX
+			MU(dev, 0xf480, UC_ALL, 0x40) &&
+
+			// ???
+			MR(dev, 0x08f8, 0xfffff0f0, 0) &&
+			MR(dev, TVW_VIDEO_INPUT_0_CONTROL, ALL, 0xa01f0000) &&
+			MR(dev, TVW_VIDEO_ADC_0_CONTROL, 0x20003080, 0x000f8524) &&
+			MR(dev, TVW_VIDEO_INPUT_1_CONTROL, ALL, 0x001f0000) &&
+			MR(dev, TVW_VIDEO_ADC_1_CONTROL, 0x20003080, 0x020f853e) &&
+
+			MU(dev, 0xf00d, UC_ALL, 0x01) &&
+			MU(dev, 0xf00d, 0xfe, 0) &&
+
+			WR(dev, TVW_TSI_PORT_CONTROL, 0x07ff0000) &&
+			WR(dev, TVW_PATCH_REG, 0x00000001) &&
+			WU(dev, 0xf0b2, 0) &&
+			WU(dev, 0xf0b3, 0) &&
+			WU(dev, 0xf0b4, 0) &&
+			WU(dev, 0xf0b5, 0) &&
+
+			// ???
+			MU(dev, 0xf00b, UC_ALL, 0x40) &&
+			MU(dev, 0xf00b, 0xbf, 0) &&
+			MU(dev, 0xf02b, 0, 0) && // XXX
+			MU(dev, 0xf00d, UC_ALL, 0x01) &&
+			MU(dev, 0xf00d, 0xfe, 0) &&
+			MU(dev, 0xf00d, 0xfc, 0x02) &&
+			MU(dev, 0xf00d, 0xfc, 0) &&
+			// service call
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0xe2) &&
+			WU(dev, 0xf0a1, 0xed) &&
+			WU(dev, 0xf0a2, 0x8b) &&
+			WU(dev, 0xf0a3, 0x9b) &&
+			WU(dev, 0xf0a4, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1a) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+			// ???
+			WU(dev, 0xf101, 0x00) &&
+			WU(dev, 0xf100, 0x00) &&
+			WU(dev, 0xf117, 0x07) &&
+			WU(dev, 0xf11c, 0x00) &&
+			WU(dev, 0xf11d, 0x00) &&
+			WU(dev, 0xf106, 0x00) &&
+			WU(dev, 0xf10d, 0x00) &&
+			WU(dev, 0xf103, 0x00) &&
+			WU(dev, 0xf102, 0x60) &&
+			WU(dev, 0xf101, 0x04) &&
+			// service call
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x01) &&
+			WU(dev, 0xf0a1, 0x02) &&
+			WU(dev, 0xf0a2, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+			// ???
+			MU(dev, 0xf480, 0xbf, 0) &&
+			MU(dev, 0xf00d, UC_ALL, 0x10) &&
+			MU(dev, 0xf00d, 0xef, 0) &&
+			MU(dev, 0xf480, UC_ALL, 0x04) && // XXX
+			WU(dev, 0xf481, 0x00) && // XXX
+			WU(dev, 0xf48d, 0x00) && // XXX
+			WU(dev, 0xf482, 0x80) && // XXX
+			WU(dev, 0xf483, 0x00) && // XXX
+			WU(dev, 0xf484, 0x00) && // XXX
+			WU(dev, 0xf488, 0x00) && // XXX
+			WU(dev, 0xf48c, 0x00) && // XXX
+			WU(dev, 0xf48b, 0x00) && // XXX
+			MU(dev, 0xf480, UC_ALL, 0x40) &&
+			// ???
+			WU(dev, 0xf090, 0x80) &&
+			MSLEEP(10) &&
+			// XXX
+			WU(dev, 0xf063, 0x01) &&
+			WU(dev, 0xf101, 0x04) &&
+
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0) && // XXX unknown values
+
+			true;
+}
+
+bool
+tvw_init56_tvw(tvwsdr_dev_t *dev) {
+	return
+			MR(dev, TVW_DVSO_PORT_CONTROL, ALL, 0) && // XXX unknown values
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0) && // XXX unknown values
+			MR(dev, TVW_DVSO_PORT_CONTROL, ALL, 0) && // XXX unknown values
+
+			// XXX
+			MR(dev, 0x0938, ALL, 0x00000100) &&
+			// XXX
+			WR(dev, TVW_AVSYNC_STC_WINDOW, 0x000cdfe5) &&
+			WR(dev, TVW_AVSYNC_SCLK_WINDOW, 0x000176ff) &&
+			WR(dev, TVW_AVSYNC_AUDIO_GAIN, 0x28800880) &&
+			MR(dev, TVW_GPIO_OUTPUT_VALUE, ALL, 0) && // XXX unknown values
+			MR(dev, TVW_GPIO_OUTPUT_VALUE, ALL, 0) && // XXX unknown values
+			MR(dev, TVW_DVSO_PORT_CONTROL, ALL, 0x00000002) &&
+			WR(dev, TVW_AVSYNC_STC_WINDOW, 0x000cdfe5) &&
+			WR(dev, TVW_AVSYNC_SCLK_WINDOW, 0x000176ff) &&
+			WR(dev, TVW_AVSYNC_AUDIO_GAIN, 0x28800880) &&
+
+			// XXX something with E0_MAGIC
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0x00005000) &&
+			// enable something
+			tvw_e0_magic(dev, 0x00000000, 0x00000151) &&
+			WR(dev, TVW_CLOCK_CONTROL_1, 0x20070154) &&
+			WR(dev, 0x0938, 0x0001a119) &&
+			WU(dev, 0xf00d, 0xe0) &&
+			WU(dev, 0xf00c, 0x07) &&
+			WR(dev, TVW_CLOCK_CONTROL_0, 0x001f8a30) &&
+			MR(dev, 0x08ac, 0xfffffff7, 0) &&
+			MR(dev, TVW_VOLTAGE_CONTROL0, ALL, 0x00ff0001) &&
+			MR(dev, TVW_USB_PATCH_REG, 0xfffffffb, 0) &&
+
+			/* INIT 6 */
+			MR(dev, TVW_GPIO_PORT_CONTROL, ALL, 0x00000002) &&
+
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0) && // XXX unknown values
+
+			WR(dev, 0x0350, 0x01e001e0) &&
+			WR(dev, 0x036c, 0x000f0064) &&
+			WR(dev, 0x0364, 0x0001ffff) &&
+			MR(dev, TVW_USC_CTL, ALL, 0x00000400) &&
+			MR(dev, TVW_USC_CTL, 0xfffffbff, 0x00000200) &&
+			WR(dev, TVW_USC_ANC_WIDTH, 0x00100000) &&
+			WR(dev, TVW_USC_VB_START, 0x00010001) &&
+			WR(dev, TVW_USC_VB_FINISH, 0x00130013) &&
+			WR(dev, TVW_USC_VD_START, 0x00140014) &&
+			WR(dev, TVW_USC_VD_FINISH, 0x01340134) &&
+			MR(dev, TVW_DVSO_PORT_CONTROL, 0xfffffffd, 0) &&
+
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0) && // XXX unknown values
+
+			MR(dev, TVW_RESET_CONTROL, ALL, 0x00000180) &&
+			MR(dev, TVW_RESET_CONTROL, 0xfffffe7f, 0) &&
+
+#if 1
+			WR(dev, TVW_VIDEO_INPUT_0_CONTROL, 0) &&
+			WR(dev, TVW_VIDEO_INPUT_1_CONTROL, 0) &&
+			WR(dev, TVW_VIDEO_ADC_0_CONTROL, 0) &&
+			WR(dev, TVW_VIDEO_ADC_1_CONTROL, 0) &&
+#endif
+
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0x00005000) &&
+			// enable something
+			tvw_e0_magic(dev, 0x00000000, 0x00000151) &&
+			WR(dev, TVW_CLOCK_CONTROL_1, 0x20070154) &&
+			WR(dev, 0x0938, 0x0001a119) &&
+			WU(dev, 0xf00d, 0xe0) &&
+			WU(dev, 0xf00c, 0x07) &&
+			WR(dev, TVW_CLOCK_CONTROL_0, 0x001f8a30) &&
+			MR(dev, 0x08ac, 0xfffffff7, 0) &&
+			MR(dev, TVW_VOLTAGE_CONTROL0, ALL, 0x00ff0001) &&
+			MR(dev, TVW_USB_PATCH_REG, 0xfffffffb, 0) &&
+
+			MR(dev, TVW_RESET_CONTROL, ALL, 0x00000180) &&
+			MR(dev, TVW_RESET_CONTROL, 0xfffffe7f, 0) &&
+			//MSLEEP(10) &&
+
+			MR(dev, TVW_DVSO_PORT_CONTROL, ALL, 0) && // XXX unknown values
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0) && // XXX unknown values
+			MR(dev, TVW_GPIO_OUTPUT_VALUE, ALL, 0) && // XXX unknown values
+			MR(dev, TVW_DVSO_PORT_CONTROL, ALL, 0) && // XXX unknown values
+			MR(dev, TVW_DVSO_PORT_CONTROL, ALL, 0) && // XXX unknown values
+			MR(dev, TVW_CLOCK_CONTROL_1, ALL, 0x00000001) && // XXX unknown values
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0x00000005) && // XXX unknown values
+
+			MR(dev, TVW_RESET_CONTROL, ALL, 0x00000180) &&
+			//WR(dev, 0x0938, 0x0001a01b) &&
+			MR(dev, 0x0938, ALL, 0x00000002) && // XXX unknown values
+			WR(dev, 0x0940, 0x004ad600) &&
+			WR(dev, 0x0944, 0x33950000) &&
+			WR(dev, 0x0948, 0x0002dc37) &&
+			MR(dev, 0x0938, 0xffffffef, 0) &&
+			WR(dev, 0x0938, 0x0001a108) &&
+			MR(dev, TVW_RESET_CONTROL, 0xffffff7f, 0) &&
+
+			MR(dev, TVW_ADEC_MATRIX_CONTROL, ALL, 0) && // XXX unknown mask
+			MR(dev, TVW_ADEC_RAMPING_PERIOD, ALL, 0) && // XXX unknown mask
+			WR(dev, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x000000ff) &&
+
+			true;
+}
+
+bool
+tvw_init_adec(tvwsdr_dev_t *dev) {
+	return
+			// file "11"
+
+			MR(dev, TVW_ADEC_CONTROL, ALL, 0) && // XXX unknown mask
+			WR(dev, TVW_ADEC_MIXER1_DTO, 0) && // XXX different in "22"
+			MR(dev, TVW_RESET_CONTROL, ALL, 0x00000180) &&
+			MR(dev, TVW_RESET_CONTROL, 0xfffffe7f, 0) &&
+			WR(dev, TVW_ADEC_MIXER1_DTO, 0x00155a61) &&
+
+			// XXX ADEC FIR XXX
+
+			WR(dev, TVW_ADEC_DEMOD1_CONTROL, 0x00000900) &&
+			WR(dev, TVW_ADEC_MIXER3_DTO1, 0x001fb3c2) &&
+			WR(dev, TVW_ADEC_MIXER3_DTO2, 0x001f6784) &&
+			WR(dev, TVW_ADEC_MIXER3_DTO3, 0x001e82d7) &&
+			WR(dev, TVW_ADEC_PILOT_CHANNEL, 0x00000a2c) &&
+			WR(dev, TVW_ADEC_SAP_CHANNEL, 0x00000a09) &&
+			WR(dev, TVW_ADEC_POWER_LPF1, 0x000000aa) &&
+			WR(dev, TVW_ADEC_POWER_LPF2, 0x000000ff) &&
+			WR(dev, TVW_ADEC_SC1_POWER_MEASURE, 0x00002a00) &&
+			WR(dev, TVW_ADEC_SC1_POWER_THRD_HIGH, 0x00000000) &&
+			WR(dev, TVW_ADEC_SC1_POWER_THRD_LOW, 0x00000000) &&
+			WR(dev, TVW_ADEC_SC2_POWER_MEASURE, 0x000027e0) &&
+			WR(dev, TVW_ADEC_SC2_POWER_THRD_HIGH, 0x00000000) &&
+			WR(dev, TVW_ADEC_SC2_POWER_THRD_LOW, 0x00000000) &&
+			WR(dev, TVW_ADEC_PILOT_POWER_MEASURE, 0x01ae1e60) &&
+			WR(dev, TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x00001800) &&
+			WR(dev, TVW_ADEC_PILOT_POWER_THRD_LOW, 0x00001200) &&
+			WR(dev, TVW_ADEC_SAP_POWER_MEASURE, 0x0006007d) &&
+			WR(dev, TVW_ADEC_SAP_POWER_THRD_HIGH, 0x00000300) &&
+			WR(dev, TVW_ADEC_SAP_POWER_THRD_LOW, 0x00000250) &&
+			WR(dev, TVW_ADEC_DECIMATOR_BYPASS_CONTROL, 0x00080140) &&
+			WR(dev, TVW_ADEC_FIR2_CONTROL, 0x00037f05) &&
+			WR(dev, TVW_ADEC_DEMOD2_CONTROL, 0x000000e8) &&
+			WR(dev, TVW_ADEC_UPSAMPLER_GAIN, 0x00000e00) &&
+			WR(dev, TVW_ADEC_EXPANDER_WIDEBAND_GAIN, 0x00003ff0) &&
+			WR(dev, TVW_ADEC_EXPANDER_SPECTRAL_GAIN, 0x00002c0a) &&
+			WR(dev, TVW_ADEC_MATRIX_CONTROL, 0x00000019) &&
+			WR(dev, TVW_ADEC_AVC_LPF, 0x00000020) &&
+			WR(dev, TVW_ADEC_AVC_THRESHOLD, 0x00000080) &&
+			WR(dev, TVW_ADEC_NOTCH_ZERO, 0x00800010) &&
+			WR(dev, TVW_ADEC_NOTCH_POLE, 0x007fc01a) &&
+			WR(dev, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x00000080) &&
+			WR(dev, TVW_ADEC_RAMPING_PERIOD, 0x0000000a) &&
+			WR(dev, TVW_ADEC_UPDATENCO_NCO, 0x008ce2aa) &&
+			WR(dev, TVW_ADEC_UPDATENCO_ACQUIRE_LPF, 0x00000010) &&
+			WR(dev, TVW_ADEC_UPDATENCO_TRACKING_LPF, 0x00000010) &&
+			WR(dev, TVW_ADEC_UPDATENCO_FIFO_K1, 0x00000576) &&
+			WR(dev, TVW_ADEC_UPDATENCO_FIFO_K2, 0x0000001d) &&
+			WR(dev, TVW_ADEC_UPDATENCO_THROTTLE_FACTOR, 0x00000008) &&
+			WR(dev, TVW_ADEC_UPDATENCO_THROTTLE_THRD, 0x00000008) &&
+			WR(dev, TVW_ADEC_FIFO_STATUS, 0x00000007) &&
+			WR(dev, TVW_ADEC_FIFO_OVERFLOW_CNTR, 0x000000ff) &&
+			WR(dev, TVW_ADEC_FIFO_UNDERFLOW_CNTR, 0x000000ff) &&
+			WR(dev, TVW_ADEC_I2S_WS_OFFSET, 0x00000000) &&
+			WR(dev, TVW_ADEC_I2S_CONTROL, 0x00002018) &&
+			WR(dev, TVW_ADEC_DECODER_DIAG, 0x0000007e) &&
+			WR(dev, TVW_ADEC_DECODER_DIAG_DATA, 0x00125c00) &&
+			WR(dev, TVW_ADEC_DECODER_CONTROL, 0x00000320) &&
+			WR(dev, TVW_ADEC_TEST_MUX_SELECT, 0x00000012) &&
+			WR(dev, TVW_ADEC_NICAM_ERROR_THRESHOLD, 0x00000010) &&
+			WR(dev, TVW_ADEC_NICAM_ERROR_CNTR, 0x000001fe) &&
+			WR(dev, TVW_ADEC_NICAM_NCO, 0x00aaaaab) &&
+			WR(dev, TVW_ADEC_NICAM_COEFF_DQPSK_RESAMPL, 0x78200000) &&
+			WR(dev, TVW_ADEC_NICAM_COEFF_DQPSK_LPF, 0x00000400) &&
+			WR(dev, TVW_ADEC_DC_OFFSET, 0x0002dbfc) &&
+			WR(dev, TVW_ADEC_TESTMUX_DATA, 0x00000033) &&
+			WR(dev, 0x50f8, 0x00000087) &&
+			WR(dev, 0x50fc, 0x00007003) &&
+			WR(dev, 0x5100, 0x0001700d) &&
+			WR(dev, 0x5104, 0x00035024) &&
+			WR(dev, 0x5108, 0x0006304a) &&
+			WR(dev, 0x510c, 0x0009c07e) &&
+			WR(dev, 0x5110, 0x000d60ba) &&
+			WR(dev, 0x5114, 0x001050f0) &&
+			WR(dev, 0x5118, 0x0011b113) &&
+			WR(dev, 0x511c, 0x05930a65) &&
+			WR(dev, 0x5120, 0x0004fffc) &&
+			WR(dev, 0x5124, 0x0004fffc) &&
+			WR(dev, 0x5128, 0xfff02200) &&
+			WR(dev, 0x512c, 0x00000006) &&
+			WR(dev, 0x5130, 0x0000000a) &&
+			WR(dev, 0x5134, 0x00000005) &&
+			WR(dev, 0x5138, 0x0000000f) &&
+			WR(dev, 0x513c, 0x00000006) &&
+			WR(dev, 0x5140, 0x0000aaaa) &&
+			WR(dev, 0x5144, 0x0000cccc) &&
+			WR(dev, 0x5148, 0x0000f0f0) &&
+			WR(dev, 0x514c, 0x0000ff00) &&
+			WR(dev, 0x5154, 0x001fb3c5) &&
+			WR(dev, 0x5158, 0x400a4e50) &&
+			WR(dev, 0x515c, 0x0020f808) &&
+			WR(dev, 0x5160, 0x002000a6) &&
+			WR(dev, 0x5164, 0x00000000) &&
+			WR(dev, 0x5168, 0xff9dcc48) &&
+			WR(dev, 0x516c, 0x004e6632) &&
+			WR(dev, 0x5170, 0xffe0ffe0) &&
+			WR(dev, 0x5174, 0x0000120f) &&
+			WR(dev, 0x5178, 0x01ffff8e) &&
+			WR(dev, 0x517c, 0x049f0d49) &&
+			WR(dev, 0x5180, 0x0008049f) &&
+			WR(dev, 0x5184, 0x112c6616) &&
+			WR(dev, 0x5188, 0x00a40923) &&
+			WR(dev, 0x518c, 0x00000000) &&
+			WR(dev, 0x5190, 0x00000000) &&
+			WR(dev, 0x5194, 0x00000000) &&
+			WR(dev, 0x5198, 0x00000000) &&
+			WR(dev, 0x519c, 0x00000000) &&
+			WR(dev, 0x51a0, 0x01028c00) &&
+			WR(dev, 0x51a4, 0x0202bb00) &&
+			WR(dev, 0x51a8, 0x00350502) &&
+			WR(dev, 0x51ac, 0x00322802) &&
+			WR(dev, 0x51b0, 0x00000000) &&
+			WR(dev, 0x51b4, 0x00000000) &&
+			WR(dev, TVW_ADEC_CONTROL, 0x000004c7) &&
+
+			// XXX ADEC FIR XXX
+
+			WR(dev, TVW_ADEC_MIXER1_DTO, 0x00155a61) &&
+			WR(dev, TVW_ADEC_MIXER3_DTO1, 0x001fa3ef) &&
+			WR(dev, 0x5154, 0x001fa3ef) &&
+			WR(dev, TVW_ADEC_MIXER3_DTO2, 0x001f47df) &&
+			WR(dev, TVW_ADEC_MIXER3_DTO3, 0x001fa3ef) &&
+			MR(dev, TVW_ADEC_MATRIX_CONTROL, ALL, 0x00000080) &&
+			WR(dev, TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x00000060) &&
+			WR(dev, TVW_ADEC_PILOT_POWER_THRD_LOW, 0x00000020) &&
+			MR(dev, TVW_ADEC_TESTMUX_DATA, 0, 0x00eab4c2) && // XXX unknown values, from 0x00000033
+			MR(dev, TVW_RESET_CONTROL, ALL, 0x00000180) &&
+			MR(dev, TVW_RESET_CONTROL, 0xfffffe7f, 0x00000000) &&
+			WR(dev, TVW_ADEC_UPDATENCO_NCO, 0x008ce2aa) && // no change
+			WR(dev, TVW_ADEC_NICAM_NCO, 0x00aaaaab) && // no change
+
+			MR(dev, TVW_ADEC_MATRIX_CONTROL, 0xfffffff7, 0) &&
+			WR(dev, TVW_ADEC_AVC_THRESHOLD, 0x00000080) &&
+			MR(dev, TVW_ADEC_MATRIX_CONTROL, 0xfffffffe, 0) &&
+			WR(dev, TVW_ADEC_RAMPING_PERIOD, 0x0000000a) &&
+			WR(dev, TVW_ADEC_MATRIX_CONTROL, 0x00000090) &&
+			MR(dev, TVW_ADEC_RAMPING_PERIOD, 0xffffff5f, 0) &&
+			WR(dev, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x00000000) &&
+			MR(dev, TVW_ADEC_MATRIX_CONTROL, ALL, 0x00000002) &&
+			WR(dev, TVW_ADEC_CONTROL, 0x000004c7) &&
+			WR(dev, TVW_ADEC_MIXER1_DTO, 0x00155a61) &&
+			MR(dev, TVW_RESET_CONTROL, ALL, 0x00000180) &&
+			MR(dev, TVW_RESET_CONTROL, 0xfffffe7f, 0) &&
+			WR(dev, TVW_ADEC_I2S_CONTROL, 0x00002018) &&
+
+			// end of file "11"
+
+			true;
+}
+
+bool
+tvw_init_unknown_1(tvwsdr_dev_t *dev) {
+	return
+			// enable ADEC?
+			tvw_e0_magic(dev, 0x00000000, 0x00140130) &&
+			// initialize ADEC threshold?
+			tvw_e0_magic(dev, 0x00000000, 0x00000131) &&
+
+			MR(dev, TVW_ADEC_MATRIX_CONTROL, ALL, 0) &&
+			MR(dev, TVW_ADEC_RAMPING_PERIOD, 0xfffffff5, 0) &&
+			WR(dev, TVW_ADEC_RAMPING_TARGET_VOLUME, 0) &&
+
+			WR(dev, TVW_VIDEO_ADC_0_CONTROL, 0x000f8520) &&
+			WR(dev, TVW_VIDEO_ADC_1_CONTROL, 0x020f853e) &&
+			WR(dev, TVW_TEST_CONTROL, 0) &&
+			MR(dev, TVW_CLOCK_CONTROL_1, ALL, 0x10000000) &&
+			WR(dev, TVW_VIDEO_INPUT_1_CONTROL, 0x001f0000) &&
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0x00000002) &&
+
+			MR(dev, TVW_RESET_CONTROL, ALL, 0x00000180) &&
+			// XXX unknown values
+			WR(dev, 0x0938, 0x0001a11b) &&
+			WR(dev, 0x0940, 0x004ad600) &&
+			WR(dev, 0x0944, 0x33950000) &&
+			WR(dev, 0x0948, 0x0002dc37) &&
+			WR(dev, 0x0938, 0x0001a10b) &&
+			WR(dev, 0x0938, 0x0001a108) &&
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0x00005000) &&
+			// enable something
+			tvw_e0_magic(dev, 0x00000000, 0x00000151) &&
+
+			MR(dev, TVW_USC_CTL, ALL, 0x00000400) &&
+
+			MR(dev, TVW_RESET_CONTROL, ALL, 0x00000200) &&
+
+			true;
+}
+
+bool
+tvw_init_unknown_2(tvwsdr_dev_t *dev) {
+	return
+			MR(dev, TVW_USC_CTL, 0xfffffbff, 0) &&
+
+			// XXX init56 prefix?
+			MR(dev, 0x0938, ALL, 0x00000100) &&
+			// XXX
+			WR(dev, TVW_AVSYNC_STC_WINDOW, 0x000cdfe5) &&
+			WR(dev, TVW_AVSYNC_SCLK_WINDOW, 0x000176ff) &&
+			WR(dev, TVW_AVSYNC_AUDIO_GAIN, 0x28800880) &&
+
+			// XXX unknown values
+			MR(dev, 0x6ad4, ALL, 0) &&
+			MR(dev, 0x6ad0, ALL, 0) &&
+			MR(dev, 0x6a90, ALL, 0) &&
+			MR(dev, 0x6ae0, ALL, 0) &&
+			MR(dev, 0x6ad8, ALL, 0) &&
+			MR(dev, 0x68f0, ALL, 0) &&
+			MR(dev, 0x6940, ALL, 0) &&
+			MR(dev, 0x6860, ALL, 0x00000010) &&
+			MR(dev, 0x6940, ALL, 0) &&
+			WR(dev, 0x6868, 0x00000220) &&
+			WR(dev, 0x686c, 0x00000000) &&
+			WR(dev, TVW_CONTROL_TWO, 0x00000020) &&
+			WR(dev, TVW_PAL_MOTION_CTRL1_2, 0x01cc3f3c) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_LOW_LL_WIN, 0x00001c1a) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_LOW_LOST, 0x00001e18) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_FOUND, 0x00008070) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_REC_LL, 0x00000002) &&
+			WR(dev, TVW_CONTROL_1D1_2, 0x00001000) &&
+			WR(dev, TVW_CONTROL_1D3_4, 0x00001000) &&
+			WR(dev, TVW_LINE_COUNT3, 0x0000013c) &&
+			WR(dev, TVW_IF_COEF1, 0x02020e01) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_REC_LOST, 0x00008302) &&
+			WR(dev, TVW_LINE_COUNT2, 0xe0c07010) &&
+			WR(dev, TVW_LINE_COUNT1, 0x000b1770) &&
+			WR(dev, 0x6870, 0x000007fd) &&
+			WR(dev, 0x6a58, 0x00000504) &&
+			WR(dev, 0x6a5c, 0x000001c0) &&
+			WR(dev, 0x6898, 0x3f3f000d) &&
+			WR(dev, TVW_SYNC_STRIP_V_DETECT_3_4, 0x40805020) &&
+			WR(dev, TVW_SYNC_STRIP_V_DETECT_7_8, 0x08000200) &&
+			WR(dev, TVW_SYNC_STRIP_V_DETECT_9, 0x28000800) &&
+			WR(dev, TVW_BACK_PORCH, 0x30002800) &&
+			WR(dev, TVW_SYNC_DETECT_DB1_2, 0x00000033) &&
+			WR(dev, TVW_DEBUG_CONV_1_2, 0x00350000) &&
+			WR(dev, TVW_LAST_TBC_DB7, 0x00c60f42) &&
+			WR(dev, TVW_AGC_CONTROL_4_5, 0x81008000) &&
+			WR(dev, TVW_NEG_BP_CTR3_4, 0x57170580) &&
+			WR(dev, TVW_D2_COEFF_17_16, 0x00000000) &&
+			WR(dev, TVW_CATV_DB1_2, 0x285b281e) &&
+			WR(dev, TVW_RESAMP_STATUS, 0x80810001) &&
+			WR(dev, TVW_PEAK_WHITE_THRESH, 0x00006500) &&
+			WR(dev, TVW_PEAK_WHITE_HWIN, 0x03000010) &&
+			WR(dev, TVW_PEAK_WHITE_VWIN, 0x08000000) &&
+			WR(dev, TVW_PEAK_WHITE_AVERAGE, 0x00000800) &&
+			WR(dev, 0x688c, 0x003e0000) &&
+			WR(dev, 0x68ec, 0x00000500) &&
+			WR(dev, TVW_CATV_FIELD, 0x2030800c) &&
+			WR(dev, TVW_RESAMP_POWER_THRESHOLD_HIGH, 0x01000100) &&
+			WR(dev, TVW_VDEC_REC_LINE_MEAS, 0x00000003) &&
+			WR(dev, 0x6aa4, 0x0038222f) &&
+			WR(dev, TVW_SECAM_DIAG, 0x00020000) &&
+			WR(dev, 0x6ab4, 0x00600010) &&
+			WR(dev, 0x6ab8, 0x014000f0) &&
+			WR(dev, 0x6b34, 0x00001000) &&
+			WR(dev, 0x6b38, 0x00000010) &&
+			WR(dev, 0x6c7c, 0x00000590) &&
+			WR(dev, 0x6908, 0x00000000) &&
+			WR(dev, 0x691c, 0x00000005) &&
+			WR(dev, TVW_TBC_CBCR_DELAY, 0x00000000) &&
+			WR(dev, TVW_TBC_OFFSET_SKEW, 0x00000000) &&
+			WR(dev, TVW_TBC_PAUSE, 0xf8000000) &&
+			WR(dev, TVW_TBC_PLL_OVER_GAIN, 0x00003d78) &&
+			WR(dev, TVW_TBC_LINE_BUF_FREQ_DIF, 0x00000000) &&
+			WR(dev, TVW_TBC_LINE_BUF_READ_DISTANCE, 0xffffffff) &&
+			WR(dev, TVW_MEMORY_MARGIN_CTL0, 0x7c0081be) &&
+			WR(dev, TVW_MEMORY_MARGIN_CTL1, 0x00000000) &&
+			WR(dev, TVW_FSC_PROG1_2, 0x00000000) &&
+			WR(dev, 0x650c, 0x0e1c0000) &&
+			WR(dev, TVW_FSC_PROG3_4, 0x3b80ffff) &&
+			WR(dev, TVW_VSYNC_SLICE1_4, 0x00000000) &&
+			WR(dev, TVW_ABS_SQ_BURST_IIR_N_EN, 0x00000000) &&
+			WR(dev, TVW_ABS_SQ_BURST_IIR_P_EP, 0x00000000) &&
+			WR(dev, TVW_VDEC_FIFO_CTL, 0x00070000) &&
+			WR(dev, TVW_CB_PLL_ACCUM, 0x14401c0a) &&
+			WR(dev, TVW_CB_PLL_FLAG, 0x60304182) &&
+			WR(dev, TVW_CP_CTRL, 0x3c284094) &&
+			WR(dev, TVW_MEASURED_NOISE, 0xfc00542e) &&
+			WR(dev, TVW_TBC_SM_CTRL, 0x00000a0a) &&
+			WR(dev, TVW_TBC_SM_VBI_WIND_START, 0x00001400) &&
+			WR(dev, TVW_NON_STANDARD_FLAG1, 0x00137fff) &&
+			WR(dev, TVW_NON_STANDARD_FLAG2, 0xffec0000) &&
+			WR(dev, TVW_NON_STANDARD_FLAG3, 0x0004f80f) &&
+			WR(dev, TVW_NON_STANDARD_FLAG4, 0x430a380a) &&
+			WR(dev, TVW_BP_LEVEL, 0xf08c194f) &&
+			WR(dev, TVW_NEW_AGC_GAIN, 0x04040000) &&
+			WR(dev, TVW_ACC_GAIN, 0x04040404) &&
+			WR(dev, TVW_DEMOD_IIR, 0x04350404) &&
+			WR(dev, TVW_ABS_SQ_BURST_IIR, 0x00500050) &&
+			WR(dev, TVW_FIELD_V_POS, 0x01000000) &&
+			WR(dev, TVW_RESAMP0_DEBUG, 0x02000100) &&
+			WR(dev, TVW_CLAMP_DEBUG, 0x000202ff) &&
+			WR(dev, TVW_VFLIP_PROG, 0x1000142f) &&
+			WR(dev, TVW_PAL_VFLIP_TH1_2, 0x204a0832) &&
+			WR(dev, TVW_PAL_VFLIP_TH3_4, 0x1e30c2ff) &&
+			WR(dev, TVW_VFLIP_MAX1_2, 0x0a400000) &&
+			WR(dev, TVW_VFLIP_MAX3_4, 0x00224120) &&
+			WR(dev, TVW_VFLIP_MAX5_6, 0xff404000) &&
+			WR(dev, TVW_VFLIP_CK_SNAP, 0x051e4000) &&
+			WR(dev, TVW_STANDARD_CONTROL1_2, 0x70100f19) &&
+			WR(dev, TVW_AUTO_SM1, 0x0a085000) &&
+			WR(dev, TVW_AUTO_VFLIP1_2, 0x64648440) &&
+			WR(dev, TVW_AUTO_VFLIP3_4, 0xff0002ff) &&
+			WR(dev, TVW_AUTO_VFLIP5_6, 0x04b41eb4) &&
+			WR(dev, TVW_SCART_CTRL, 0x48ff1c00) &&
+			WR(dev, TVW_AUTO_READ1, 0x20640650) &&
+			WR(dev, TVW_VFLIP1_2_ON, 0x003f2064) &&
+			WR(dev, TVW_CBPLL_ABS, 0x019a0254) &&
+			WR(dev, TVW_LPF_LL, 0x005005fa) &&
+			WR(dev, TVW_FPLL_DBG_PORT, 0xa440200a) &&
+			WR(dev, TVW_NOISE_MEASURE_CONTROL, 0x04403434) &&
+			WR(dev, TVW_NOISE_MEASURE_VCOUNT_WINDOW, 0x009b0000) &&
+			WR(dev, TVW_SECAM_SEP_DR6, 0x00000f48) &&
+			WR(dev, TVW_SECAM_SEP_DR7, 0x28000000) &&
+			WR(dev, TVW_SECAM_SEP_DR8, 0x00000000) &&
+			WR(dev, TVW_SECAM_SEP_DR9, 0xfffff001) &&
+			WR(dev, TVW_SECAM_SEP_DR10, 0x11302020) &&
+			WR(dev, TVW_SECAM_SEP_DR11, 0x000000ff) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP16, 0x00000000) &&
+			WR(dev, TVW_SECAM_CONTROL3, 0x00000000) &&
+			WR(dev, TVW_SECAM_CONTROL5, 0x00000000) &&
+			WR(dev, 0x66d8, 0x00000000) &&
+			WR(dev, 0x66dc, 0x4a000000) &&
+			WR(dev, TVW_VDEC_INTERRUPT_ENABLE, 0xffff2740) &&
+			WR(dev, TVW_VDEC_INTERRUPT_CLEAR, 0x0000ff00) &&
+			WR(dev, TVW_VDEC_LOCK_INTR_CTRL, 0xffffffff) &&
+			WR(dev, TVW_VDEC_MV_INTR_CTRL, 0x00ff0000) &&
+			WR(dev, TVW_VDEC_TRICK_MODE_INTR_CTRL, 0x50603058) &&
+			WR(dev, TVW_SECAM_CTRL1, 0x0a806060) &&
+			WR(dev, TVW_SECAM_CTRL2, 0xff101028) &&
+			WR(dev, TVW_SECAM_BURST2, 0x000007fd) &&
+			WR(dev, TVW_SECAM_CLAMP_CTRL3, 0x00000008) &&
+			WR(dev, TVW_SECAM_DEEMPHASIS_COEFF, 0x000007f0) &&
+			WR(dev, TVW_VDEC_STD_INTR_CTRL, 0x10603210) &&
+			WR(dev, TVW_SECAM_SEPARATION_CNTRL, 0x0000001d) &&
+			WR(dev, TVW_SECAM_EMPHASIS_BOOST, 0x000007cd) &&
+			WR(dev, TVW_SECAM_DIAG_DATA, 0x00000064) &&
+			WR(dev, TVW_SECAM_CLAMP_CTRL4, 0x020006bd) &&
+			WR(dev, TVW_SECAM_AGC_CTRL4, 0x07d80003) &&
+			WR(dev, TVW_SECAM_SEPARATION_CTRL1, 0x001107f3) &&
+			WR(dev, TVW_SECAM_CONTROL, 0x0009001e) &&
+			WR(dev, TVW_SECAM_CLOCHE_COEFB0, 0x07da07dc) &&
+			WR(dev, TVW_SECAM_CLOCHE_COEFB1, 0x00530018) &&
+			WR(dev, TVW_SECAM_CLOCHE_COEFA1, 0x07920032) &&
+			WR(dev, TVW_VDEC_NOISE_MEASURE_HIGH_INTR_CTRL, 0x00206080) &&
+			WR(dev, TVW_SECAM_NOISE_SCALING_THRESH_LOW, 0x028606d2) &&
+			WR(dev, TVW_SECAM_NOISE_SCALING_SLOPE, 0xc8c802c8) &&
+			WR(dev, TVW_SECAM_NOISE_MEASURE_CONTROL, 0x000014a7) &&
+			WR(dev, TVW_SECAM_NOISE_MEASURE_VCOUNT_WINDOW, 0x80001460) &&
+			WR(dev, TVW_SECAM_NOISE_MEASUREMENT, 0x00000000) &&
+			WR(dev, TVW_SECAM_CARRIER_AMP_CTRL, 0x00010000) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP1, 0x00000000) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP2, 0x00000000) &&
+			WR(dev, TVW_VDEC_NOISE_MEASURE_LOW_INTR_CTRL, 0x10101410) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP3, 0x00000000) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP4, 0x00080000) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP5, 0x112a0028) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP6, 0x00440e58) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP7, 0x80be2204) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP8, 0x20202cb4) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP9, 0x000004c3) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP10, 0x61500000) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP11, 0x64304180) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP12, 0x18381838) &&
+			WR(dev, TVW_VDEC_NOISE_INTR_TRIGGER, 0x8f601064) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP13, 0x00020077) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP14, 0x00000011) &&
+			WR(dev, TVW_VDEC_VSYNC_INTR_CTRL, 0xf5f214cc) &&
+			WR(dev, TVW_VDEC_FIELD_ID_INTR_CTRL, 0x0000241e) &&
+			WR(dev, TVW_VDEC_DEBUG1_INTR_CTRL, 0x80a5c623) &&
+			WR(dev, TVW_VDEC_MD_CTRL, 0x10f2a9f3) &&
+			WR(dev, TVW_MOTION_1D_2D, 0x041b414b) &&
+			WR(dev, TVW_TRICK_AUTO_STANDARD1_2, 0x2ea24a41) &&
+			WR(dev, TVW_VSYNC_SLICE3, 0x3582ec37) &&
+			WR(dev, TVW_SAME_CH_3D1_2, 0xb8022d27) &&
+			WR(dev, 0x6568, 0xdded450c) &&
+			WR(dev, 0x656c, 0x37523c37) &&
+			WR(dev, TVW_SECAM_SEP_DB0, 0xc8021f26) &&
+			WR(dev, TVW_SECAM_SEP_DB1, 0x0aea44dd) &&
+			WR(dev, TVW_SECAM_SEP_DB2, 0x13149b94) &&
+			WR(dev, TVW_SECAM_SEP_DB3, 0x6be57925) &&
+			WR(dev, TVW_SECAM_SEP_DB4, 0x5a1049ca) &&
+			WR(dev, TVW_SECAM_SEP_DB5, 0xe31ea3c9) &&
+			WR(dev, TVW_SECAM_SEP_DB6, 0x97fe3679) &&
+			WR(dev, TVW_SECAM_SEP_DB7, 0xca863cf3) &&
+			WR(dev, TVW_SECAM_SEP_DB8, 0x802073c9) &&
+			WR(dev, TVW_SECAM_SEP_DB9, 0x04088025) &&
+			WR(dev, TVW_SECAM_SEP_DB10, 0x04800c0f) &&
+			WR(dev, TVW_SECAM_SEP_DB11, 0x20000140) &&
+			WR(dev, TVW_SECAM_SEP_DB12, 0x88888888) &&
+			WR(dev, TVW_SECAM_SEP_DB13, 0x88887888) &&
+			WR(dev, TVW_SECAM_SEP_DB14, 0x88886788) &&
+			WR(dev, TVW_SECAM_SEP_DB15, 0x56780004) &&
+			WR(dev, TVW_SECAM_SEP_DB16, 0x45680023) &&
+			WR(dev, TVW_SECAM_SEP_DR0, 0x23460002) &&
+			WR(dev, TVW_SECAM_SEP_DR1, 0x12350001) &&
+			WR(dev, TVW_SECAM_SEP_DR2, 0x00000000) &&
+			WR(dev, TVW_SECAM_SEP_DR3, 0x44030a05) &&
+			WR(dev, TVW_SECAM_SEP_DR12, 0x20102840) &&
+			WR(dev, TVW_SECAM_SEP_DR13, 0x08800600) &&
+			WR(dev, TVW_SECAM_SEP_DR14, 0x281440ff) &&
+			WR(dev, TVW_SECAM_SEP_DR15, 0x28142801) &&
+			WR(dev, TVW_SECAM_SEP_DR16, 0x14288000) &&
+			WR(dev, 0x65f8, 0x60ff283f) &&
+			WR(dev, TVW_SECAM_AGC_CTRL1, 0x0b10302a) &&
+			WR(dev, TVW_SECAM_AGC_CTRL2, 0xbe108b6b) &&
+			WR(dev, TVW_SECAM_AGC_CTRL3, 0x04ff1010) &&
+			WR(dev, TVW_SECAM_CTRL0, 0x0044796a) &&
+			WR(dev, TVW_VDEC_VSYNC_INTR_CTRL, 0xcaf214cc) &&
+			WR(dev, TVW_SECAM_SEP_DR13, 0x08808600) &&
+			WR(dev, TVW_SECAM_NOISE_SCALING_SLOPE, 0xc8c800c8) &&
+			WR(dev, TVW_SECAM_NARROW_TRAP9, 0x00000443) &&
+			WR(dev, TVW_SECAM_SEP_DR12, 0x600b2880) &&
+			WR(dev, TVW_SECAM_AGC_CTRL1, 0x0b103040) &&
+			WR(dev, TVW_VDEC_VIDEO_FLAGS, 0x04107dcf) &&
+			WR(dev, TVW_NON_STANDARD_FLAG4, 0x430a480a) &&
+			WR(dev, TVW_SECAM_NOISE_MEASURE_CONTROL, 0x100014a3) &&
+			WR(dev, TVW_SECAM_CTRL2, 0xff200405) &&
+			MR(dev, TVW_SECAM_NARROW_TRAP14, ALL, 0x00000007) &&
+			WR(dev, 0x6b28, 0x0000010c) &&
+			WR(dev, 0x6938, 0x000080ff) &&
+			WR(dev, 0x6938, 0x000000ff) &&
+			WR(dev, 0x6938, 0x000001ff) &&
+			MR(dev, 0x68ec, ALL, 0) &&
+			MR(dev, TVW_W9_10, ALL, 0x80008000) &&
+			MR(dev, TVW_W11, ALL, 0x80008000) &&
+			MR(dev, 0x6860, ALL, 0x00000004) &&
+			WR(dev, 0x6904, 0xe40f100f) &&
+			WR(dev, TVW_PWM1_CLAMP_CTRL, 0xe4e4000e) &&
+			WR(dev, TVW_AGC_CONTROL_4_5, 0x81008000) &&
+			WR(dev, 0x6b70, 0x00013000) &&
+			MR(dev, TVW_MEMORY_MARGIN_CTL0, ALL, 0x00200000) &&
+			WR(dev, 0x6b50, 0x01000000) &&
+			WR(dev, 0x6938, 0x00008000) &&
+			MR(dev, TVW_MEMORY_MARGIN_CTL0, ALL, 0) &&
+			MR(dev, TVW_VDEC_NOISE_INTR_TRIGGER, ALL, 0) &&
+			MR(dev, TVW_VDEC_FIFO_CTL, ALL, 0x00080000) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_LOW_LL_WIN, 0x00001c1a) &&
+			WR(dev, TVW_HLOCK_ACQUIRE_LOW_LOST, 0x00001e18) &&
+			MR(dev, TVW_DVSO_CRTC_SETTINGS, 0xfff3fffb, 0x00700010) &&
+			WR(dev, TVW_DVSO_CRTC_VSTART, 0x01390001) &&
+			WR(dev, TVW_DVSO_CRTC_VBI_START_LINE, 0x01400007) &&
+			WR(dev, TVW_DVSO_CRTC_VID_START_LINE, 0x0153001a) &&
+			MR(dev, TVW_VBIST_GENERATOR, 0xffffff3f, 0) &&
+			MR(dev, TVW_VBIST_GENERATOR, ALL, 0x000000c8) &&
+			MR(dev, TVW_VBIST_GENERATOR, ALL, 0x00000002) &&
+			WR(dev, TVW_VBIST_VBI_HEIGHT, 0x00000002) &&
+			WR(dev, TVW_VBIST_VID_WIDTH, 0x000002d0) &&
+			WR(dev, TVW_VBIST_VID_HEIGHT, 0x0000011a) &&
+			MR(dev, TVW_CPU_HALF_BAND, ALL, 0) &&
+			MR(dev, TVW_CPU_HALF_BAND, ALL, 0) &&
+			WR(dev, 0x68e4, 0x0000011f) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000000) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000001) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000002) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000003) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000004) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000005) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000006) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000007) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000008) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000009) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000000a) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000000b) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000000c) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000000d) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000000e) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000000f) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000010) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000011) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000012) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000013) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000014) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000015) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000016) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000017) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000018) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x00000019) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000001a) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000001b) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000001c) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000001d) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000001e) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000001f) &&
+			WR(dev, 0x68e0, 0x00000000) &&
+			WR(dev, 0x68dc, 0x0000000a) &&
+			WR(dev, 0x68e0, 0x000000ff) &&
+			MR(dev, 0x6b34, ALL, 0) &&
+			WR(dev, TVW_SYNC_LOW_DB5, 0x00000294) &&
+			WR(dev, 0x68e4, 0x0000011f) &&
+			MR(dev, 0x6b20, ALL, 0) &&
+			MR(dev, 0x6ad0, ALL, 0) &&
+			MR(dev, 0x6ad4, ALL, 0) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			// XXX 2x read of 0x68f8 (ret 0x6) before each write
+			WR(dev, 0x68dc, 0x00000000) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000001) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000002) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000003) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000004) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000005) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000006) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000007) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000008) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000009) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x0000000a) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x0000000b) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x0000000c) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x0000000d) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x0000000e) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x0000000f) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000010) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000011) &&
+			WR(dev, 0x68e0, 0x00000ffc) &&
+			WR(dev, 0x68dc, 0x00000012) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x00000013) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x00000014) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x00000015) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x00000016) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x00000017) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x00000018) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x00000019) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x0000001a) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x0000001b) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x0000001c) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x0000001d) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x0000001e) &&
+			WR(dev, 0x68e0, 0x0000000c) &&
+			WR(dev, 0x68dc, 0x0000001f) &&
+			// XXX 2x read before all of these RMW, none in between
+			MR(dev, 0x6b34, ALL, 0) &&
+			MR(dev, 0x6b38, ALL, 0x00000002) &&
+			MR(dev, 0x68a8, ALL, 0) &&
+			// XXX 4x read to finish it off
+
+			MR(dev, 0x6b20, ALL, 0) &&
+			MR(dev, TVW_CATV_DB1_2, ALL, 0xc0000000) &&
+			MR(dev, 0x6ad4, ALL, 0) &&
+			MR(dev, 0x6ad0, ALL, 0) &&
+			MR(dev, 0x6a90, ALL, 0) &&
+			MR(dev, 0x6ae0, ALL, 0) &&
+			MR(dev, 0x6ad8, ALL, 0) &&
+			MR(dev, 0x68f0, ALL, 0) &&
+
+			// XXX this E0 magic seems to trigger ISOCH! XXX
+			// enable ISOCH
+			tvw_e0_magic(dev, 0x50060000, 0x02070120) &&
+			MR(dev, TVW_RESET_CONTROL, 0xfffff7ff, 0) &&
+			// TVW_ADEC_MATRIX_CONTROL
+			// TVW_ADEC_RAMPING_PERIOD
+			WR(dev, TVW_ADEC_RAMPING_TARGET_VOLUME, 0) &&
+
+			true;
+}
+
+bool
+tvw_tune_tvw(tvwsdr_dev_t *dev) {
+	return
+			// ???
+			MU(dev, 0xf101, UC_ALL, 0x02) &&
+			WU(dev, 0xf090, 0) &&
+			MSLEEP(10) &&
+			// read 0xf091
+			WR(dev, TVW_PATCH_REG, 0) &&
+			WU(dev, 0xf0b2, 0) &&
+			WU(dev, 0xf0b3, 0) &&
+			WU(dev, 0xf0b4, 0) &&
+			WU(dev, 0xf0b5, 0) &&
+
+			MR(dev, TVW_CLOCK_CONTROL_0, ALL, 0x00400000) &&
+
+			// ???
+			MR(dev, 0x08f8, 0xfffff0f0, 0) &&
+			MR(dev, TVW_VIDEO_INPUT_0_CONTROL, ALL, 0xa01f0000) &&
+			MR(dev, TVW_VIDEO_ADC_0_CONTROL, 0x20003080, 0x000f8524) &&
+			MR(dev, TVW_VIDEO_INPUT_1_CONTROL, ALL, 0x001f0000) &&
+			MR(dev, TVW_VIDEO_ADC_1_CONTROL, 0x20003080, 0x020f853e) &&
+
+			MU(dev, 0xf00d, UC_ALL, 0x01) &&
+			MU(dev, 0xf00d, 0xfe, 0) &&
+
+			WU(dev, 0xfb3d, 0) &&
+
+			// ???
+			MU(dev, 0xf00b, UC_ALL, 0x40) &&
+			MU(dev, 0xf00b, 0xbf, 0) &&
+			MU(dev, 0xf02b, 0, 0x04) &&
+			MU(dev, 0xf00d, UC_ALL, 0x01) &&
+			MU(dev, 0xf00d, 0xfe, 0) &&
+			MU(dev, 0xf00d, 0xfc, 0x02) &&
+			MU(dev, 0xf00d, 0xfc, 0) &&
+
+			WU(dev, 0xf201, 0xfa) &&
+			WU(dev, 0xf202, 0x15) &&
+			WU(dev, 0xf203, 0xc4) &&
+			WU(dev, 0xf209, 0x55) &&
+			WU(dev, 0xf20a, 0x2c) &&
+			WU(dev, 0xf20b, 0xf4) &&
+			WU(dev, 0xf200, 0x03) &&
+
+			WU(dev, 0xf255, 0x96) &&
+			WU(dev, 0xf256, 0x01) &&
+			WU(dev, 0xf257, 0x3c) &&
+			WU(dev, 0xf258, 0x91) &&
+
+			WU(dev, 0xf140, 0x03) &&
+			WU(dev, 0xf141, 0x00) &&
+			WU(dev, 0xf142, 0x00) &&
+			WU(dev, 0xf143, 0x10) &&
+			WU(dev, 0xf144, 0x00) &&
+			WU(dev, 0xf145, 0x0e) &&
+			WU(dev, 0xf146, 0x1a) &&
+			WU(dev, 0xf147, 0x10) &&
+			WU(dev, 0xf148, 0x00) &&
+			WU(dev, 0xf149, 0x0e) &&
+			WU(dev, 0xf14a, 0x1a) &&
+			WU(dev, 0xf1d9, 0x43) &&
+			WU(dev, 0xf1da, 0xd3) &&
+			WU(dev, 0xf1db, 0x3f) &&
+			WU(dev, 0xf1dc, 0xeb) &&
+			WU(dev, 0xf14b, 0x00) &&
+			WU(dev, 0xf14c, 0x44) &&
+			WU(dev, 0xf153, 0x01) &&
+			WU(dev, 0xf0b2, 0xff) &&
+			WU(dev, 0xf0b3, 0x66) &&
+			WU(dev, 0xf0b4, 0x00) &&
+			WU(dev, 0xf0b5, 0xbc) &&
+			WU(dev, 0xf0b0, 0xff) &&
+			WU(dev, 0xf0b1, 0x6c) &&
+			WU(dev, 0xf154, 0x0f) &&
+			WU(dev, 0xf155, 0x6c) &&
+			WU(dev, 0xf156, 0x59) &&
+			WU(dev, 0xf157, 0x13) &&
+			WU(dev, 0xf158, 0xea) &&
+			WU(dev, 0xf159, 0x7f) &&
+			WU(dev, 0xf15a, 0xb4) &&
+			WU(dev, 0xf15b, 0x49) &&
+			WU(dev, 0xf15c, 0x89) &&
+			WU(dev, 0xf15d, 0xc4) &&
+			WU(dev, 0xf15e, 0xe0) &&
+			WU(dev, 0xf15f, 0x31) &&
+			WU(dev, 0xf160, 0x72) &&
+			WU(dev, 0xf161, 0x71) &&
+			WU(dev, 0xf162, 0x35) &&
+			WU(dev, 0xf163, 0x71) &&
+			WU(dev, 0xf164, 0x19) &&
+			WU(dev, 0xf165, 0xf6) &&
+			WU(dev, 0xf166, 0x34) &&
+			WU(dev, 0xf167, 0x0e) &&
+			WU(dev, 0xf168, 0xd1) &&
+			WU(dev, 0xf169, 0xbd) &&
+			WU(dev, 0xf16a, 0x10) &&
+			WU(dev, 0xf16b, 0x57) &&
+			WU(dev, 0xf16c, 0xfc) &&
+			WU(dev, 0xf16d, 0x82) &&
+			WU(dev, 0xf16e, 0x57) &&
+			WU(dev, 0xf16f, 0x23) &&
+			WU(dev, 0xf170, 0xbb) &&
+			WU(dev, 0xf171, 0xaf) &&
+			WU(dev, 0xf172, 0xdd) &&
+			WU(dev, 0xf173, 0x75) &&
+			WU(dev, 0xf174, 0x76) &&
+			WU(dev, 0xf175, 0x28) &&
+			WU(dev, 0xf176, 0xa4) &&
+			WU(dev, 0xf177, 0x01) &&
+			WU(dev, 0xf178, 0x00) &&
+			WU(dev, 0xf179, 0xd9) &&
+			WU(dev, 0xf17a, 0x4d) &&
+			WU(dev, 0xf17b, 0x03) &&
+			WU(dev, 0xf17c, 0x80) &&
+			WU(dev, 0xf17d, 0x6d) &&
+			WU(dev, 0xf17e, 0x1f) &&
+			WU(dev, 0xf17f, 0x00) &&
+			WU(dev, 0xf181, 0x04) &&
+			WU(dev, 0xf182, 0x08) &&
+			WU(dev, 0xf183, 0x00) &&
+			WU(dev, 0xf184, 0x0f) &&
+			WU(dev, 0xf185, 0x09) &&
+			WU(dev, 0xf186, 0x43) &&
+			WU(dev, 0xf187, 0x6e) &&
+			WU(dev, 0xf188, 0x89) &&
+			WU(dev, 0xf189, 0x56) &&
+			WU(dev, 0xf18a, 0x73) &&
+			WU(dev, 0xf18b, 0x33) &&
+			WU(dev, 0xf18c, 0xa8) &&
+			WU(dev, 0xf190, 0x08) &&
+			WU(dev, 0xf191, 0x0c) &&
+			WU(dev, 0xf192, 0x18) &&
+			WU(dev, 0xf194, 0x00) &&
+			WU(dev, 0xf195, 0x03) &&
+			WU(dev, 0xf196, 0x06) &&
+			WU(dev, 0xf197, 0x08) &&
+			WU(dev, 0xf198, 0x10) &&
+			WU(dev, 0xf19a, 0x06) &&
+			WU(dev, 0xf19b, 0x00) &&
+			WU(dev, 0xf19c, 0x0f) &&
+			WU(dev, 0xf1e4, 0x00) &&
+			WU(dev, 0xf1e3, 0x00) &&
+			WU(dev, 0xf1a3, 0x0a) &&
+			WU(dev, 0xf1a5, 0x4a) &&
+			WU(dev, 0xf1a6, 0x5a) &&
+			WU(dev, 0xf1a7, 0x0a) &&
+			WU(dev, 0xf1a8, 0x09) &&
+			WU(dev, 0xf1a9, 0x0f) &&
+			WU(dev, 0xf1aa, 0x58) &&
+			WU(dev, 0xf1ab, 0x1e) &&
+			WU(dev, 0xf1ac, 0xb0) &&
+			WU(dev, 0xf1ad, 0xf9) &&
+			WU(dev, 0xf1ae, 0xdd) &&
+			WU(dev, 0xf1af, 0x06) &&
+			WU(dev, 0xf1b0, 0x23) &&
+			WU(dev, 0xf1b1, 0xf0) &&
+			WU(dev, 0xf1b2, 0xa8) &&
+			WU(dev, 0xf1b3, 0x0f) &&
+			WU(dev, 0xf1b4, 0x58) &&
+			WU(dev, 0xf1b5, 0xd9) &&
+			WU(dev, 0xf1b6, 0xa3) &&
+			WU(dev, 0xf1b7, 0x13) &&
+			WU(dev, 0xf1b8, 0xf3) &&
+			WU(dev, 0xf1b9, 0x05) &&
+			WU(dev, 0xf1ba, 0x0f) &&
+			WU(dev, 0xf1bc, 0x40) &&
+			WU(dev, 0xf1e1, 0x12) &&
+			WU(dev, 0xf1bd, 0x04) &&
+			WU(dev, 0xf1be, 0x9a) &&
+			WU(dev, 0xf1d5, 0x45) &&
+			WU(dev, 0xf1d6, 0x20) &&
+			WU(dev, 0xf1d7, 0x66) &&
+			WU(dev, 0xf1bf, 0x4c) &&
+			WU(dev, 0xf1c0, 0x3d) &&
+			WU(dev, 0xf1c1, 0x30) &&
+			WU(dev, 0xf1c2, 0x31) &&
+			WU(dev, 0xf1c3, 0x13) &&
+			WU(dev, 0xf1c4, 0x15) &&
+			WU(dev, 0xf1c5, 0x10) &&
+			WU(dev, 0xf1c6, 0x02) &&
+			WU(dev, 0xf1c7, 0x14) &&
+			WU(dev, 0xf1c9, 0x84) &&
+			WU(dev, 0xf1d8, 0x0e) &&
+			WU(dev, 0xf1ca, 0xff) &&
+			WU(dev, 0xf1cb, 0x20) &&
+			WU(dev, 0xf1cd, 0x10) &&
+			WU(dev, 0xf1ce, 0x21) &&
+			WU(dev, 0xf1d3, 0x04) &&
+			WU(dev, 0xf1e2, 0x05) &&
+			WU(dev, 0xf1d4, 0x39) &&
+			WU(dev, 0xf19d, 0x04) &&
+			WU(dev, 0xf19e, 0xd9) &&
+			WU(dev, 0xf1e5, 0x02) &&
+			WU(dev, 0xf1e6, 0x03) &&
+			WU(dev, 0xf1e7, 0x00) &&
+			WU(dev, 0xf1e8, 0x00) &&
+			WU(dev, 0xf1e9, 0x02) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x0c) &&
+			WU(dev, 0xf1ef, 0x10) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x0e) &&
+			WU(dev, 0xf1ef, 0x11) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x13) &&
+			WU(dev, 0xf1ef, 0x12) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x1a) &&
+			WU(dev, 0xf1ef, 0x13) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x25) &&
+			WU(dev, 0xf1ef, 0x14) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x32) &&
+			WU(dev, 0xf1ef, 0x15) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x40) &&
+			WU(dev, 0xf1ef, 0x16) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x50) &&
+			WU(dev, 0xf1ef, 0x17) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x60) &&
+			WU(dev, 0xf1ef, 0x18) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x70) &&
+			WU(dev, 0xf1ef, 0x19) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x7e) &&
+			WU(dev, 0xf1ef, 0x1a) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x8c) &&
+			WU(dev, 0xf1ef, 0x1b) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x97) &&
+			WU(dev, 0xf1ef, 0x1c) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x9f) &&
+			WU(dev, 0xf1ef, 0x1d) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0xa4) &&
+			WU(dev, 0xf1ef, 0x1e) &&
+			WU(dev, 0xf1ec, 0x00) &&
+			WU(dev, 0xf1ed, 0x53) &&
+			WU(dev, 0xf1ef, 0x1f) &&
+			WU(dev, 0x0017, 0xd0) &&
+			WU(dev, 0xf157, 0x09) &&
+			WU(dev, 0xf158, 0xeb) &&
+			WU(dev, 0xf159, 0x08) &&
+			WU(dev, 0xf15a, 0x97) &&
+			WU(dev, 0xf15b, 0x67) &&
+			WU(dev, 0xf15c, 0x02) &&
+			WU(dev, 0xf15d, 0x2b) &&
+			WU(dev, 0xf15e, 0x27) &&
+			WU(dev, 0xf15f, 0x14) &&
+			WU(dev, 0xf160, 0x7f) &&
+			WU(dev, 0xf161, 0x13) &&
+			WU(dev, 0xf162, 0x82) &&
+			WU(dev, 0xf163, 0x7a) &&
+			WU(dev, 0xf164, 0x94) &&
+			WU(dev, 0xf165, 0x65) &&
+			WU(dev, 0xf166, 0xc8) &&
+			WU(dev, 0xf167, 0x07) &&
+			WU(dev, 0xf168, 0x66) &&
+			WU(dev, 0xf169, 0x81) &&
+			WU(dev, 0xf16a, 0x70) &&
+			WU(dev, 0xf16b, 0x6d) &&
+			WU(dev, 0xf16c, 0x46) &&
+			WU(dev, 0xf16d, 0xd3) &&
+			WU(dev, 0xf16e, 0xf2) &&
+			WU(dev, 0xf16f, 0x0f) &&
+			WU(dev, 0xf170, 0x68) &&
+			WU(dev, 0xf171, 0xde) &&
+			WU(dev, 0xf172, 0xeb) &&
+			WU(dev, 0xf173, 0x7b) &&
+			WU(dev, 0xf174, 0xe9) &&
+			WU(dev, 0xf175, 0xe4) &&
+			WU(dev, 0xf176, 0x09) &&
+			WU(dev, 0xf177, 0x00) &&
+			WU(dev, 0xf178, 0xf2) &&
+			WU(dev, 0xf0b4, 0x00) &&
+			WU(dev, 0xf0b5, 0xb9) &&
+			WU(dev, 0xf179, 0xd1) &&
+			WU(dev, 0xf17a, 0x84) &&
+			WU(dev, 0xf0b2, 0xff) &&
+			WU(dev, 0xf0b3, 0x6c) &&
+			WU(dev, 0xf154, 0x0f) &&
+			WU(dev, 0xf155, 0x2b) &&
+			WU(dev, 0xf1ba, 0x0e) &&
+			WU(dev, 0xf1bc, 0x17) &&
+			WU(dev, 0xfb33, 0x00) &&
+			WU(dev, 0xfb34, 0xb1) &&
+			WU(dev, 0xf156, 0x40) &&
+			WU(dev, 0xf0ba, 0x00) &&
+			WU(dev, 0xf101, 0x04) &&
+
+			XU(dev, 0xf09f, 0x80, 0) &&
+			WU(dev, 0xf0a0, 0x01) &&
+			WU(dev, 0xf0a1, 0x02) &&
+			WU(dev, 0xf0a2, 0x00) &&
+			WU(dev, 0xf09f, 0x80 | 0x1c) &&
+			MSLEEP(10) &&
+			XU(dev, 0xf09c, 0x80, 0x80) &&
+			WU(dev, 0xf09c, 0x00) &&
+
+			WU(dev, 0xf092, 0x16) &&
+			WU(dev, 0xf090, 0x10) &&
+			// needed?
+			WU(dev, 0xf201, 0xfa) &&
+			WU(dev, 0xf202, 0x15) &&
+			WU(dev, 0xf203, 0xc4) &&
+			WU(dev, 0xf209, 0x55) &&
+			WU(dev, 0xf20a, 0x2c) &&
+			WU(dev, 0xf20b, 0xf4) &&
+			WU(dev, 0xf200, 0x03) &&
+			MSLEEP(10) &&
+			WU(dev, 0xf063, 0x01) &&
+			WU(dev, 0xf101, 0x04) &&
+
+			true;
+}
+
+int
+tvwsdr_open(tvwsdr_dev_t **out_dev, uint32_t freq) {
+	int ret;
 	uint32_t val;
-};
-
-struct tvwsdr_reg_cmd tvw_init1[] = {
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_WRITE, 0x08a8, 0x2000, 0x0000f0a0 },
-	{ REG_WRITE, 0x08ac, 0x2000, 0x0000f0a8 },
-	{ REG_WRITE, TVW_MPLL_CONTROL, 0x2000, 0x0001a008 },
-	{ REG_WRITE, TVW_FPLL_CONTROL, 0x2000, 0x87000024 },
-	{ REG_WRITE, TVW_XPLL_CONTROL, 0x2000, 0x0018c600 },
-	{ REG_WRITE, TVW_VPLL_CONTROL_0, 0x2000, 0x00c00000 },
-	{ REG_WRITE, TVW_VPLL_CONTROL_1, 0x2000, 0x00000001 },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a008 },
-	{ REG_WRITE, 0x093c, 0x2000, 0x87000024 },
-	{ REG_WRITE, 0x0940, 0x2000, 0x004a6400 },
-	{ REG_WRITE, 0x0944, 0x2000, 0x33950000 },
-	{ REG_WRITE, 0x0948, 0x2000, 0x000ad437 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x008ffb3f },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_1, 0x2000, 0x22070155 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000200 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000200 },
-	{ REG_WRITE, TVW_USC_CTL, 0x2000, 0x00600000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000190 },
-	{ REG_READ,  TVW_MPLL_CONTROL, 0x2000, 0x0001a008 },
-	{ REG_WRITE, TVW_MPLL_CONTROL, 0x2000, 0x0001a008 },
-	{ REG_WRITE, TVW_MPLL_CONTROL, 0x2000, 0x0001a008 },
-	{ REG_READ,  TVW_MPLL_CONTROL, 0x2000, 0x0001a008 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a008 },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a008 },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a008 },
-	{ REG_WRITE, TVW_RBBM_CTRL, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_1, 0x2000, 0x00070155 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa37 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000190 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_CPU_HALF_BAND, 0x2000, 0x80008000 },
-	{ REG_WRITE, TVW_CPU_HALF_BAND, 0x2000, 0x80048004 },
-	{ REG_WRITE, TVW_GPIO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, 0x088c, 0x2000, 0x0001cfff },
-	{ REG_WRITE, TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_TSI_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_AGC_PORT_CONTROL, 0x2000, 0x23ff0000 },
-	{ REG_WRITE, TVW_PCI_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, 0x096c, 0x2000, 0x00014eff },
-	{ REG_READ,  0x00a8, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_AVBS1R_SETTINGS, 0x2000, 0x00bc0000 },
-	{ REG_WRITE, TVW_AVBS1R_SETTINGS, 0x2000, 0x00bc0004 },
-	{ REG_WRITE, TVW_AVBS1R_OFFSET, 0x2000, 0x00013400 },
-	{ REG_WRITE, TVW_AVBS1R_BUF_SIZE, 0x2000, 0x00001c00 },
-	{ REG_WRITE, TVW_AVBS1W_OFFSET, 0x2000, 0x00013400 },
-	{ REG_WRITE, TVW_AVBS1W_BUF_SIZE, 0x2000, 0x00001c00 },
-	{ REG_WRITE, TVW_AVBS2R_OFFSET, 0x2000, 0x00015000 },
-	{ REG_WRITE, TVW_AVBS2R_BUF_SIZE, 0x2000, 0x00001c00 },
-	{ REG_WRITE, TVW_AVBS2W_OFFSET, 0x2000, 0x00015000 },
-	{ REG_WRITE, TVW_AVBS2W_BUF_SIZE, 0x2000, 0x00001c00 },
-	{ REG_READ,  TVW_FEAW_SETTINGS, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FEAW_SETTINGS, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_FEAW_OFFSET, 0x2000, 0x00012400 },
-	{ REG_READ,  TVW_RAR_SETTINGS, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RAR_SETTINGS, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_RAR_BUF_SIZE, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_RAR_OFFSET, 0x2000, 0x00012400 },
-	{ REG_READ,  TVW_FEVW_SETTINGS, 0x2000, 0x00001010 },
-	{ REG_WRITE, TVW_FEVW_SETTINGS, 0x2000, 0x00001810 },
-	{ REG_WRITE, TVW_FEVW_FIELDS_INT_THR, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_DRS_CONTROL, 0x2000, 0x00000012 },
-	{ REG_WRITE, TVW_FEVW_LUM_INT_OFFSET_1, 0x2000, 0x00010c00 },
-	{ REG_WRITE, TVW_FEVW_LUM_INT_PITCH, 0x2000, 0x00300000 },
-	{ REG_READ,  TVW_FEVW_SETTINGS, 0x2000, 0x00001810 },
-	{ REG_WRITE, TVW_FEVW_SETTINGS, 0x2000, 0x00001800 },
-	{ REG_WRITE, TVW_FEVW_N_FRAME_BUFS, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_FEVW_CHR_INT_OFFSET_1, 0x2000, 0x00011800 },
-	{ REG_WRITE, TVW_FEVW_CHR_INT_PITCH, 0x2000, 0x00300000 },
-	{ REG_WRITE, TVW_FEVW_VBI_PITCH, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RVR_SETTINGS, 0x2000, 0x00002040 },
-	{ REG_WRITE, TVW_RVR_SETTINGS, 0x2000, 0x00003040 },
-	{ REG_WRITE, TVW_RVR_LUM_INT_OFFSET_1, 0x2000, 0x00010c00 },
-	{ REG_WRITE, TVW_RVR_LUM_INT_PITCH, 0x2000, 0x00300000 },
-	{ REG_READ,  TVW_RVR_SETTINGS, 0x2000, 0x00003040 },
-	{ REG_WRITE, TVW_RVR_SETTINGS, 0x2000, 0x00003000 },
-	{ REG_WRITE, TVW_RVR_N_FRAME_BUFS, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_RVR_CHR_INT_OFFSET_1, 0x2000, 0x00011800 },
-	{ REG_WRITE, TVW_RVR_CHR_INT_PITCH, 0x2000, 0x00300000 },
-	{ REG_WRITE, TVW_RVR_VBI_PITCH, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_HCU_STATUS, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_GPIO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_GPIO_PORT_CONTROL, 0x2000, 0x07ff0001 },
-	{ REG_WRITE, TVW_DVSO_CRTC_VLINE_INTR, 0x2000, 0x03ff03ff },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_USC_CTL, 0x2000, 0x00600000 },
-	{ REG_WRITE, TVW_USC_CTL, 0x2000, 0x00701100 },
-	{ REG_WRITE, TVW_USC_ANC_WIDTH, 0x2000, 0x00100000 },
-	{ REG_WRITE, TVW_USC_VB_START, 0x2000, 0x00020002 },
-	{ REG_WRITE, TVW_USC_VB_FINISH, 0x2000, 0x000e000e },
-	{ REG_WRITE, TVW_USC_VD_START, 0x2000, 0x000f000f },
-	{ REG_WRITE, TVW_USC_VD_FINISH, 0x2000, 0x00ff00ff },
-	{ REG_READ,  TVW_DRS_CONTROL, 0x2000, 0x00000012 },
-	{ REG_WRITE, TVW_DRS_CONTROL, 0x2000, 0x00000012 },
-	{ REG_READ,  TVW_DRS_CONTROL, 0x2000, 0x00000012 },
-	{ REG_WRITE, TVW_DRS_CONTROL, 0x2000, 0x00000012 },
-	{ REG_WRITE, TVW_DVSO_ANC_ID, 0x2000, 0x01014142 },
-	{ REG_READ,  TVW_DVSO_VIP2_CTL2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_DVSO_VIP2_CTL2, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_DVSO_VIP2_CTL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_DVSO_VIP2_CTL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x00000400 },
-	{ REG_WRITE, TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x00000400 },
-	{ REG_READ,  TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x00000400 },
-	{ REG_WRITE, TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x00000400 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a008 },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a01b },
-	{ REG_READ,  0x0940, 0x2000, 0x004a6400 },
-	{ REG_WRITE, 0x0940, 0x2000, 0x004ad600 },
-	{ REG_READ,  0x0944, 0x2000, 0x33950000 },
-	{ REG_WRITE, 0x0944, 0x2000, 0x33950000 },
-	{ REG_READ,  0x0948, 0x2000, 0x000ad437 },
-	{ REG_WRITE, 0x0948, 0x2000, 0x0002dc37 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a01b },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a00b },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a008 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_READ,  TVW_AUD_SCRAMBLE_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_AUD_SCRAMBLE_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000100 },
-	{ REG_READ,  TVW_AVBS2W_SETTINGS, 0x2000, 0x00bc0000 },
-	{ REG_WRITE, TVW_AVBS2W_SETTINGS, 0x2000, 0x00bc0000 },
-	{ REG_READ,  TVW_TSI_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_TSI_PORT_CONTROL, 0x2000, 0x07ff0001 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_AVBSI_FRAMER0_CNTL1, 0x2000, 0x00004701 },
-	{ REG_READ,  TVW_AVBSI_FRAMER1_CNTL1, 0x2000, 0x00004701 },
-	{ REG_READ,  TVW_AVBSI_TPA_CNTL, 0x2000, 0x00000006 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa37 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x007ffa35 },
-	{ REG_READ,  TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x00000400 },
-	{ REG_WRITE, TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x00000404 },
-	{ REG_READ,  TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x00000400 },
-	{ REG_WRITE, TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x00000404 },
-	{ REG_READ,  0x08a8, 0x2000, 0x0000f0a0 },
-	{ REG_WRITE, 0x08a8, 0x2000, 0x0000f1a0 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x007ffa35 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa37 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_CPU_HALF_BAND, 0x2000, 0x80048004 },
-	{ REG_WRITE, TVW_CPU_HALF_BAND, 0x2000, 0x80048004 },
-	{ REG_WRITE, 0x6860, 0x2000, 0x00004080 },
-	{ REG_WRITE, 0x6868, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_PEAK_WHITE, 0x2000, 0x00000580 },
-	{ REG_WRITE, 0x6864, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6868, 0x2000, 0x0000020c },
-	{ REG_WRITE, 0x686c, 0x2000, 0x00000410 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_REC_EDGE, 0x2000, 0x00000002 },
-	{ REG_WRITE, 0x6870, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6874, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6878, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_LOW_LL_WIN, 0x2000, 0x00001c1a },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_LOW_LOST, 0x2000, 0x00000516 },
-	{ REG_WRITE, 0x687c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6880, 0x2000, 0x10000000 },
-	{ REG_WRITE, 0x6884, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6888, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x688c, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SYNC_STRIP_TP_CTRL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_REC_LL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_SYNC_SEL, 0x2000, 0x00000002 },
-	{ REG_WRITE, 0x6890, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESAMP_COUT_SHFT, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6894, 0x2000, 0xfb000000 },
-	{ REG_WRITE, 0x689c, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESAMP_YOUT_SCALE, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_MEASURE_SYNCTIP_TH1, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68a0, 0x2000, 0xe8003000 },
-	{ REG_WRITE, TVW_MEASURE_SYNCTIP_BP_LP, 0x2000, 0x00005800 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_REC_LOST, 0x2000, 0x00008302 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_FOUND, 0x2000, 0x00008070 },
-	{ REG_WRITE, TVW_CB_PLL_ACC7, 0x2000, 0x00000040 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_WRITE, TVW_AGC_CONTROL_4_5, 0x2000, 0x81008000 },
-	{ REG_WRITE, TVW_AGC_CONTROL_6_7, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_AGC_ACC_MODE, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FRAME_SEN_CTRL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VBI_ADDR, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VBI_RD_DATA, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_LAST_TBC_DB7, 0x2000, 0x00c27f44 },
-	{ REG_WRITE, TVW_DEBUG_CONV_1_2, 0x2000, 0x003e0000 },
-	{ REG_WRITE, TVW_DEBUG_CONV_3_4, 0x2000, 0x00000007 },
-	{ REG_WRITE, TVW_VDEC_MEM_EN, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_LINE_COUNT4, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_GAIN_AGC, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_BURST_AMP, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_NEW_COMB_CTRL, 0x2000, 0x00008032 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_SYNC_LOW_TH, 0x2000, 0x87f507f8 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_SYNC_REC_TH, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_MEASURE_SYNCTIP_SYNC_REC_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_MEASURE_SYNCTIP_TH0, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_D2_COEFF_3_2, 0x2000, 0x0fe01000 },
-	{ REG_WRITE, TVW_D2_COEFF_5_4, 0x2000, 0x0ff00ff0 },
-	{ REG_WRITE, TVW_D2_COEFF_7_6, 0x2000, 0x0fe00000 },
-	{ REG_WRITE, 0x68c0, 0x2000, 0x3c000000 },
-	{ REG_WRITE, TVW_D2_COEFF_9_8, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_D2_COEFF_11_10, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_D2_COEFF_13_12, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68c4, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_LAST_TBC_DB5_6, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_CONTROL_1D1_2, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_CONTROL_1D3_4, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_CONTROL_TWO, 0x2000, 0x00000020 },
-	{ REG_WRITE, TVW_CBPLL_PROG, 0x2000, 0x10089180 },
-	{ REG_WRITE, TVW_CBCR_OFFSET, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_DEBUG_READ, 0x2000, 0x0e00bf00 },
-	{ REG_WRITE, TVW_SECAM_CTRL, 0x2000, 0x00508650 },
-	{ REG_WRITE, TVW_LAST_TBC_DB1_2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_D2_COEFF_15_14, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_CB_PLL_ACC5_6, 0x2000, 0x009320ac },
-	{ REG_WRITE, TVW_CB_PLL_ACC3_4, 0x2000, 0x00000280 },
-	{ REG_WRITE, TVW_CB_PLL_TEST_9_10, 0x2000, 0x000001a3 },
-	{ REG_WRITE, TVW_CB_PLL_ACC1_2, 0x2000, 0x02800080 },
-	{ REG_WRITE, TVW_CB_PLL_TEST_5_6, 0x2000, 0x00100010 },
-	{ REG_WRITE, TVW_CB_PLL_TEST_3_4, 0x2000, 0xfc3ffc3f },
-	{ REG_WRITE, TVW_RISING_PROG1_2, 0x2000, 0x87000674 },
-	{ REG_WRITE, TVW_TBC_BP_ST3, 0x2000, 0x00000007 },
-	{ REG_WRITE, TVW_RISING_PROG3, 0x2000, 0x01010406 },
-	{ REG_WRITE, TVW_TBC_BP_ST1_2, 0x2000, 0x80c4782e },
-	{ REG_WRITE, TVW_COMB_3D_ADJUST, 0x2000, 0x000020ac },
-	{ REG_WRITE, TVW_CB_PLL_TEST_7_8, 0x2000, 0x00100010 },
-	{ REG_WRITE, TVW_CB_PLL_TEST_1_2, 0x2000, 0x86d016a8 },
-	{ REG_WRITE, TVW_BURST_RISING1_2, 0x2000, 0x00000020 },
-	{ REG_WRITE, TVW_YELLOW_DB1_2, 0x2000, 0x04020406 },
-	{ REG_WRITE, TVW_VBI_END_FIELD, 0x2000, 0x80c47828 },
-	{ REG_WRITE, TVW_CATV_DB1_2, 0x2000, 0xe85b281e },
-	{ REG_WRITE, TVW_IIR_BW, 0x2000, 0xc1850c01 },
-	{ REG_WRITE, TVW_PAUSE_FIX1_2, 0x2000, 0x02d709d3 },
-	{ REG_WRITE, TVW_PAUSE_FIX3_4, 0x2000, 0x00007733 },
-	{ REG_WRITE, TVW_AGC_CONTROL_2_3, 0x2000, 0x00000006 },
-	{ REG_WRITE, TVW_CATV_FIELD, 0x2000, 0x2030800c },
-	{ REG_WRITE, 0x68d0, 0x2000, 0x20000001 },
-	{ REG_WRITE, TVW_FIELD_RST1, 0x2000, 0x19e72035 },
-	{ REG_WRITE, TVW_FV_WIDE1_2, 0x2000, 0x20002000 },
-	{ REG_WRITE, 0x68d4, 0x2000, 0x18202000 },
-	{ REG_WRITE, TVW_FV_WIDE3_5, 0x2000, 0xffff7800 },
-	{ REG_WRITE, TVW_RESAMP_POWER_THRESHOLD_HIGH, 0x2000, 0x01000120 },
-	{ REG_WRITE, TVW_PAUSE_FIX5_6, 0x2000, 0x02240253 },
-	{ REG_WRITE, TVW_NM_PROG1_2, 0x2000, 0x0a0a1010 },
-	{ REG_WRITE, TVW_NM_PROG3_4, 0x2000, 0x04040707 },
-	{ REG_WRITE, TVW_AFE_AGC_CONTROL, 0x2000, 0x0000b000 },
-	{ REG_WRITE, TVW_SYNC_DETECT_DB1_2, 0x2000, 0x00000022 },
-	{ REG_WRITE, TVW_RESAMP_POWER_THRESHOLD_LOW, 0x2000, 0x0000800b },
-	{ REG_WRITE, TVW_RESAMP_STATUS, 0x2000, 0x80810001 },
-	{ REG_WRITE, TVW_PEAK_WHITE_THRESH, 0x2000, 0x00006100 },
-	{ REG_WRITE, TVW_PEAK_WHITE_HWIN, 0x2000, 0x03000006 },
-	{ REG_WRITE, TVW_PEAK_WHITE_VWIN, 0x2000, 0x08000000 },
-	{ REG_WRITE, TVW_PEAK_WHITE_AVERAGE, 0x2000, 0x00000800 },
-	{ REG_WRITE, TVW_DEBUG_CONV_5, 0x2000, 0x00000011 },
-	{ REG_WRITE, 0x68d8, 0x2000, 0x00005022 },
-	{ REG_WRITE, TVW_OFFSET_CALC_STATUS, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_OFFSET_CALC_LOG, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_OFFSET_CALC_COUNT, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_VIDEO_TIMING, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68c8, 0x2000, 0x00004200 },
-	{ REG_WRITE, TVW_D2_COEFF_17_16, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_D2_COEFF_19_18, 0x2000, 0x00740000 },
-	{ REG_WRITE, TVW_DEBUG_MUX_SEL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FINAL_DB1_2, 0x2000, 0x00000074 },
-	{ REG_WRITE, 0x68cc, 0x2000, 0x406d3080 },
-	{ REG_WRITE, TVW_FINAL_DB3_4, 0x2000, 0xfe01008e },
-	{ REG_WRITE, TVW_FINAL_DB5_6, 0x2000, 0x50f030ff },
-	{ REG_WRITE, TVW_FINAL_DB7_8, 0x2000, 0x00800000 },
-	{ REG_WRITE, TVW_FINAL_DB9_10, 0x2000, 0x00200080 },
-	{ REG_WRITE, TVW_FINAL_DB11_12, 0x2000, 0x00328400 },
-	{ REG_WRITE, TVW_LINE_COUNT1, 0x2000, 0x000b1770 },
-	{ REG_WRITE, TVW_FINAL_DB13_14, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FINAL_DB15_16, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FINAL_DB17_18, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESAMP_YOUT_SHFT, 0x2000, 0x000002cc },
-	{ REG_WRITE, TVW_FINAL_DB19_20, 0x2000, 0x0b0067be },
-	{ REG_WRITE, TVW_FINAL_DB21_22, 0x2000, 0x40003fe0 },
-	{ REG_WRITE, TVW_FINAL_DB23_24, 0x2000, 0x00700c32 },
-	{ REG_WRITE, TVW_LINE_COUNT2, 0x2000, 0x00c03020 },
-	{ REG_WRITE, TVW_LINE_COUNT3, 0x2000, 0x0000003c },
-	{ REG_WRITE, TVW_FINAL_DB25_26, 0x2000, 0x40bf3100 },
-	{ REG_WRITE, TVW_FINAL_DB27, 0x2000, 0x18300140 },
-	{ REG_WRITE, TVW_ACC_CONTROL, 0x2000, 0x00000660 },
-	{ REG_WRITE, TVW_ACC_SPEED, 0x2000, 0x0000e000 },
-	{ REG_WRITE, TVW_ACC_TH_ADJ, 0x2000, 0x22220608 },
-	{ REG_WRITE, TVW_ACC_BURST_POS1_2, 0x2000, 0x00008e8e },
-	{ REG_WRITE, TVW_ACC_BURST_POS3_4, 0x2000, 0x00000002 },
-	{ REG_WRITE, TVW_BURST_WIDTH1_2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_BURST_WIDTH3_4, 0x2000, 0x0000b030 },
-	{ REG_WRITE, TVW_BURST_WIDTH5_6, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_BURST_WIDTH7, 0x2000, 0x091d0020 },
-	{ REG_WRITE, TVW_SYNC_POS1_2, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_SYNC_POS3_4, 0x2000, 0x20000106 },
-	{ REG_WRITE, TVW_SYNC_POS5_6, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SYNC_POS7_8, 0x2000, 0x5000030f },
-	{ REG_WRITE, TVW_FV_WIDE5, 0x2000, 0x04000100 },
-	{ REG_WRITE, TVW_SNAP_DB1_2, 0x2000, 0x01800100 },
-	{ REG_WRITE, TVW_SNAP_DB3, 0x2000, 0xff9f0100 },
-	{ REG_WRITE, TVW_TEAR_DB1, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SYNC_POS9_10, 0x2000, 0x00037002 },
-	{ REG_WRITE, TVW_CCR_ADJUST, 0x2000, 0x2f0e2202 },
-	{ REG_WRITE, TVW_NP_CONTROL, 0x2000, 0x00003def },
-	{ REG_WRITE, TVW_Q_CONTROL, 0x2000, 0x00204f00 },
-	{ REG_WRITE, 0x6898, 0x2000, 0x3820000d },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_1_2, 0x2000, 0x00600040 },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_3_4, 0x2000, 0x40800e40 },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_5_6, 0x2000, 0x01000ecc },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_7_8, 0x2000, 0x08000600 },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_9, 0x2000, 0x10000a00 },
-	{ REG_WRITE, TVW_BACK_PORCH, 0x2000, 0x30002000 },
-	{ REG_WRITE, TVW_LAST_TBC_DB3_4, 0x2000, 0x00000011 },
-	{ REG_WRITE, TVW_NEG_BP_CTR1_2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_NEG_BP_CTR3_4, 0x2000, 0xd7970580 },
-	{ REG_WRITE, TVW_NEG_BP_CTR4_5, 0x2000, 0x00005717 },
-	{ REG_WRITE, TVW_PAL_MOTION_CTRL1_2, 0x2000, 0x01cc3f3c },
-	{ REG_WRITE, TVW_MOTION_3D, 0x2000, 0x000010f0 },
-	{ REG_WRITE, TVW_SYNC_LOW_DB1_2, 0x2000, 0x2eec80ff },
-	{ REG_WRITE, TVW_SYNC_LOW_DB3_4, 0x2000, 0x00004942 },
-	{ REG_WRITE, TVW_SYNC_LOW_DB5, 0x2000, 0x00000294 },
-	{ REG_WRITE, TVW_SYNC_POS11_12, 0x2000, 0x023a8237 },
-	{ REG_WRITE, TVW_VCR_DB1_2, 0x2000, 0x0000aa89 },
-	{ REG_WRITE, TVW_VLOCK_ACQUIRE_CTRL, 0x2000, 0x00002098 },
-	{ REG_WRITE, TVW_VLOCK_ACQUIRE_FIELD_WIN, 0x2000, 0x83001000 },
-	{ REG_WRITE, TVW_VLOCK_ACQUIRE_PAL_FIELD, 0x2000, 0x44444444 },
-	{ REG_WRITE, TVW_GENLOCK_FLAG, 0x2000, 0xa8644444 },
-	{ REG_WRITE, TVW_GENLOCK_VCR, 0x2000, 0x44444444 },
-	{ REG_WRITE, TVW_GENLOCK_REC_SELECT, 0x2000, 0x4c0000b8 },
-	{ REG_WRITE, 0x68e8, 0x2000, 0xf0006200 },
-	{ REG_WRITE, TVW_GENLOCK_TRICK_MODE_1_2, 0x2000, 0x0000070c },
-	{ REG_WRITE, TVW_RESAMP_CONTROL, 0x2000, 0x00ff3040 },
-	{ REG_WRITE, TVW_GENLOCK_TRICK_MODE_3_4, 0x2000, 0x80c00c08 },
-	{ REG_WRITE, TVW_GENLOCK_TRICK_MODE_5, 0x2000, 0x30402000 },
-	{ REG_WRITE, TVW_GENLOCK_VALID_3D, 0x2000, 0x4030a010 },
-	{ REG_WRITE, TVW_VLOCK_ACQUIRE_FIELD_LOCK, 0x2000, 0x40302010 },
-	{ REG_WRITE, TVW_GENLOCK_BURST_GAIN, 0x2000, 0x00001100 },
-	{ REG_WRITE, TVW_AGC_FAST_20P, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_AGC_FAST_HIGH_TH, 0x2000, 0x05000002 },
-	{ REG_WRITE, TVW_OFFSET_CALC_SCH_VALUE, 0x2000, 0x00000e0e },
-	{ REG_WRITE, TVW_AGC_FAST_LOW_TH, 0x2000, 0x0000000b },
-	{ REG_WRITE, TVW_AGC_FAST_PEAK_BLACK_TH, 0x2000, 0x000004fc },
-	{ REG_WRITE, TVW_IF_COEF1, 0x2000, 0x02020e00 },
-	{ REG_WRITE, TVW_VDEC_REC_HLOCK_FLAG, 0x2000, 0x39657666 },
-	{ REG_WRITE, TVW_IF_COEF2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_IF_COEF3, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_AFE_DEBUG_AGC, 0x2000, 0x00220000 },
-	{ REG_WRITE, TVW_VDEC_STATUS, 0x2000, 0xffb9ffd6 },
-	{ REG_WRITE, TVW_VDEC_SYNC_LEVEL, 0x2000, 0xff6e00f0 },
-	{ REG_WRITE, TVW_VDEC_CLAMP_OUT, 0x2000, 0x037afe6e },
-	{ REG_WRITE, TVW_VDEC_LOW_HLOCK_FLAG, 0x2000, 0xf88bfef2 },
-	{ REG_WRITE, TVW_VDEC_LOW_LINE_MEAS, 0x2000, 0x296211df },
-	{ REG_WRITE, 0x693c, 0x2000, 0x000002bc },
-	{ REG_WRITE, TVW_AGC_FAST_SPEED_0_1, 0x2000, 0x0a030008 },
-	{ REG_WRITE, TVW_AGC_FAST_SPEED_2_3, 0x2000, 0x00200010 },
-	{ REG_WRITE, TVW_VDEC_REC_LINE_MEAS, 0x2000, 0x00000003 },
-	{ REG_WRITE, 0x6940, 0x2000, 0x00000020 },
-	{ REG_WRITE, 0x6944, 0x2000, 0x0000000f },
-	{ REG_WRITE, 0x6948, 0x2000, 0x27727777 },
-	{ REG_WRITE, 0x694c, 0x2000, 0x00004060 },
-	{ REG_WRITE, 0x6950, 0x2000, 0x00005090 },
-	{ REG_WRITE, 0x6954, 0x2000, 0x000003cc },
-	{ REG_WRITE, 0x6958, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_DIAG, 0x2000, 0x00020000 },
-	{ REG_WRITE, 0x6c7c, 0x2000, 0x00000590 },
-	{ REG_WRITE, 0x6908, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x691c, 0x2000, 0x00000005 },
-	{ REG_WRITE, TVW_VDEC_VIDEO_FLAGS, 0x2000, 0x0410fdcf },
-	{ REG_WRITE, TVW_CB_PLL_ACCUM, 0x2000, 0x14401c0a },
-	{ REG_WRITE, TVW_CB_PLL_FLAG, 0x2000, 0x60404180 },
-	{ REG_WRITE, TVW_CP_CTRL, 0x2000, 0x8c28f098 },
-	{ REG_WRITE, TVW_MEASURED_NOISE, 0x2000, 0xfc005420 },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG1, 0x2000, 0x00137fff },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG2, 0x2000, 0xffec0000 },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG3, 0x2000, 0x1010f82f },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG4, 0x2000, 0x430a4810 },
-	{ REG_WRITE, TVW_BP_LEVEL, 0x2000, 0xf08c194f },
-	{ REG_WRITE, TVW_NEW_AGC_GAIN, 0x2000, 0x06060200 },
-	{ REG_WRITE, TVW_ACC_GAIN, 0x2000, 0x06080606 },
-	{ REG_WRITE, TVW_DEMOD_IIR, 0x2000, 0x04380808 },
-	{ REG_WRITE, TVW_ABS_SQ_BURST_IIR, 0x2000, 0x01200120 },
-	{ REG_WRITE, TVW_FIELD_V_POS, 0x2000, 0x03100000 },
-	{ REG_WRITE, TVW_RESAMP0_DEBUG, 0x2000, 0x01200100 },
-	{ REG_WRITE, TVW_CLAMP_DEBUG, 0x2000, 0x000204ff },
-	{ REG_WRITE, TVW_VFLIP_PROG, 0x2000, 0x20f20560 },
-	{ REG_WRITE, TVW_PAL_VFLIP_TH1_2, 0x2000, 0x304a0a20 },
-	{ REG_WRITE, TVW_PAL_VFLIP_TH3_4, 0x2000, 0x1e40f20a },
-	{ REG_WRITE, TVW_VFLIP_MAX1_2, 0x2000, 0x0a404400 },
-	{ REG_WRITE, TVW_VFLIP_MAX3_4, 0x2000, 0x2832423c },
-	{ REG_WRITE, TVW_VFLIP_MAX5_6, 0x2000, 0xff404100 },
-	{ REG_WRITE, TVW_VFLIP_CK_SNAP, 0x2000, 0x050e4000 },
-	{ REG_WRITE, TVW_STANDARD_CONTROL1_2, 0x2000, 0x7010020e },
-	{ REG_WRITE, TVW_AUTO_SM1, 0x2000, 0x0a085000 },
-	{ REG_WRITE, TVW_AUTO_VFLIP1_2, 0x2000, 0x64648440 },
-	{ REG_WRITE, TVW_AUTO_VFLIP3_4, 0x2000, 0x8b000240 },
-	{ REG_WRITE, TVW_AUTO_VFLIP5_6, 0x2000, 0x04b41eb4 },
-	{ REG_WRITE, TVW_SCART_CTRL, 0x2000, 0x58ff2000 },
-	{ REG_WRITE, TVW_AUTO_READ1, 0x2000, 0x20640650 },
-	{ REG_WRITE, TVW_VFLIP1_2_ON, 0x2000, 0x00392064 },
-	{ REG_WRITE, TVW_CBPLL_ABS, 0x2000, 0x019a01ea },
-	{ REG_WRITE, TVW_LPF_LL, 0x2000, 0x004005fa },
-	{ REG_WRITE, TVW_FPLL_DBG_PORT, 0x2000, 0x817a400a },
-	{ REG_WRITE, TVW_NOISE_MEASURE_CONTROL, 0x2000, 0x06406040 },
-	{ REG_WRITE, TVW_NOISE_MEASURE_VCOUNT_WINDOW, 0x2000, 0x009b0000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR6, 0x2000, 0x00000f68 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR7, 0x2000, 0x28000000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR8, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR9, 0x2000, 0xfffff000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR10, 0x2000, 0x11302020 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR11, 0x2000, 0x000a0a0a },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP16, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_CONTROL3, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_CONTROL5, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x66d8, 0x2000, 0x0f802f00 },
-	{ REG_WRITE, 0x66dc, 0x2000, 0x4a001f80 },
-	{ REG_WRITE, TVW_TBC_SM_CTRL, 0x2000, 0x00000a0a },
-	{ REG_WRITE, TVW_TBC_SM_VBI_WIND_START, 0x2000, 0x14001400 },
-	{ REG_WRITE, TVW_MEMORY_MARGIN_CTL0, 0x2000, 0x7c0081be },
-	{ REG_WRITE, TVW_MEMORY_MARGIN_CTL1, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FSC_PROG1_2, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x650c, 0x2000, 0x0e1c0000 },
-	{ REG_WRITE, TVW_FSC_PROG3_4, 0x2000, 0x3b80ffff },
-	{ REG_WRITE, TVW_VSYNC_SLICE1_4, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ABS_SQ_BURST_IIR_N_EN, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ABS_SQ_BURST_IIR_P_EP, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VDEC_FIFO_CTL, 0x2000, 0x000f0000 },
-	{ REG_WRITE, TVW_VDEC_INTERRUPT_ENABLE, 0x2000, 0xffff2440 },
-	{ REG_WRITE, TVW_VDEC_INTERRUPT_CLEAR, 0x2000, 0x0000ff00 },
-	{ REG_WRITE, TVW_VDEC_LOCK_INTR_CTRL, 0x2000, 0xffffffff },
-	{ REG_WRITE, TVW_VDEC_MV_INTR_CTRL, 0x2000, 0x00ff0000 },
-	{ REG_WRITE, TVW_VDEC_TRICK_MODE_INTR_CTRL, 0x2000, 0x20802020 },
-	{ REG_WRITE, TVW_VDEC_STD_INTR_CTRL, 0x2000, 0x40c64040 },
-	{ REG_WRITE, TVW_VDEC_NOISE_MEASURE_HIGH_INTR_CTRL, 0x2000, 0x0000c280 },
-	{ REG_WRITE, TVW_VDEC_NOISE_MEASURE_LOW_INTR_CTRL, 0x2000, 0x10101410 },
-	{ REG_WRITE, TVW_VDEC_NOISE_INTR_TRIGGER, 0x2000, 0x8f781058 },
-	{ REG_WRITE, TVW_VDEC_VSYNC_INTR_CTRL, 0x2000, 0xf532146f },
-	{ REG_WRITE, TVW_VDEC_FIELD_ID_INTR_CTRL, 0x2000, 0x1e1e241e },
-	{ REG_WRITE, TVW_VDEC_DEBUG1_INTR_CTRL, 0x2000, 0x8e8108b7 },
-	{ REG_WRITE, TVW_VDEC_MD_CTRL, 0x2000, 0xf8319999 },
-	{ REG_WRITE, TVW_MOTION_1D_2D, 0x2000, 0xd562b06c },
-	{ REG_WRITE, TVW_TRICK_AUTO_STANDARD1_2, 0x2000, 0xdc826001 },
-	{ REG_WRITE, TVW_VSYNC_SLICE3, 0x2000, 0x28124f3d },
-	{ REG_WRITE, TVW_SAME_CH_3D1_2, 0x2000, 0x0998cf2b },
-	{ REG_WRITE, 0x6568, 0x2000, 0xf1f54b1b },
-	{ REG_WRITE, 0x656c, 0x2000, 0x3c32ef3d },
-	{ REG_WRITE, TVW_SECAM_SEP_DB0, 0x2000, 0xa9983320 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB1, 0x2000, 0x34d9433e },
-	{ REG_WRITE, TVW_SECAM_SEP_DB2, 0x2000, 0x1fa39825 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB3, 0x2000, 0x4a9e522b },
-	{ REG_WRITE, TVW_SECAM_SEP_DB4, 0x2000, 0x5cfb4e7b },
-	{ REG_WRITE, TVW_SECAM_SEP_DB5, 0x2000, 0x2452d0c3 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB6, 0x2000, 0xea9efd2b },
-	{ REG_WRITE, TVW_SECAM_SEP_DB7, 0x2000, 0xd8f051db },
-	{ REG_WRITE, TVW_SECAM_SEP_DB8, 0x2000, 0x8020bf3d },
-	{ REG_WRITE, TVW_SECAM_SEP_DB9, 0x2000, 0x14188025 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB10, 0x2000, 0x0d601c1f },
-	{ REG_WRITE, TVW_SECAM_SEP_DB11, 0x2000, 0x20000240 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB12, 0x2000, 0x88888888 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB13, 0x2000, 0x88887888 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB14, 0x2000, 0x88886788 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB15, 0x2000, 0x56780004 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB16, 0x2000, 0x45680023 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR0, 0x2000, 0x23460002 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR1, 0x2000, 0x12350001 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR3, 0x2000, 0x44030a05 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR12, 0x2000, 0x70002050 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR13, 0x2000, 0x08608300 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR14, 0x2000, 0x28144000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR15, 0x2000, 0x28142800 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR16, 0x2000, 0x14288000 },
-	{ REG_WRITE, 0x65f8, 0x2000, 0x70f0001f },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL1, 0x2000, 0x0a283e40 },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL2, 0x2000, 0xbe100b38 },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL3, 0x2000, 0x04ff1010 },
-	{ REG_WRITE, TVW_SECAM_CTRL0, 0x2000, 0x08467f57 },
-	{ REG_WRITE, TVW_SECAM_CTRL1, 0x2000, 0x0a603032 },
-	{ REG_WRITE, TVW_SECAM_CTRL2, 0x2000, 0x10080b20 },
-	{ REG_WRITE, TVW_SECAM_BURST2, 0x2000, 0x000027fd },
-	{ REG_WRITE, TVW_SECAM_CLAMP_CTRL3, 0x2000, 0x00000008 },
-	{ REG_WRITE, TVW_SECAM_DEEMPHASIS_COEFF, 0x2000, 0x000007f0 },
-	{ REG_WRITE, TVW_SECAM_SEPARATION_CNTRL, 0x2000, 0x0000001d },
-	{ REG_WRITE, TVW_SECAM_EMPHASIS_BOOST, 0x2000, 0x000007cd },
-	{ REG_WRITE, TVW_SECAM_DIAG_DATA, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_SECAM_CLAMP_CTRL4, 0x2000, 0x020006bd },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL4, 0x2000, 0x07d80003 },
-	{ REG_WRITE, TVW_SECAM_SEPARATION_CTRL1, 0x2000, 0x001107f3 },
-	{ REG_WRITE, TVW_SECAM_CONTROL, 0x2000, 0x0009001e },
-	{ REG_WRITE, TVW_SECAM_CLOCHE_COEFB0, 0x2000, 0x07da07dc },
-	{ REG_WRITE, TVW_SECAM_CLOCHE_COEFB1, 0x2000, 0x00530018 },
-	{ REG_WRITE, TVW_SECAM_CLOCHE_COEFA1, 0x2000, 0x07920032 },
-	{ REG_WRITE, TVW_SECAM_NOISE_SCALING_THRESH_LOW, 0x2000, 0x028606d2 },
-	{ REG_WRITE, TVW_SECAM_NOISE_SCALING_SLOPE, 0x2000, 0xc8c802c8 },
-	{ REG_WRITE, TVW_SECAM_NOISE_MEASURE_CONTROL, 0x2000, 0x000014a7 },
-	{ REG_WRITE, TVW_SECAM_NOISE_MEASURE_VCOUNT_WINDOW, 0x2000, 0x80001460 },
-	{ REG_WRITE, TVW_SECAM_NOISE_MEASUREMENT, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_CARRIER_AMP_CTRL, 0x2000, 0x00010000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP1, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP3, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP4, 0x2000, 0x00080000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP5, 0x2000, 0x112a0028 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP6, 0x2000, 0x00440e58 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP7, 0x2000, 0x80be2204 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP8, 0x2000, 0x04042cb4 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP9, 0x2000, 0x00000ac3 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP10, 0x2000, 0x61500000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP11, 0x2000, 0x64304180 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP12, 0x2000, 0xa028a028 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP13, 0x2000, 0x001402ff },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP14, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR4, 0x2000, 0x8f7f12f0 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR5, 0x2000, 0x00b13b34 },
-	{ REG_WRITE, 0x6b74, 0x2000, 0x00000043 },
-	{ REG_WRITE, 0x6b78, 0x2000, 0x00036fc8 },
-	{ REG_WRITE, 0x6b7c, 0x2000, 0x00041eaf },
-	{ REG_WRITE, 0x6b80, 0x2000, 0x0006df91 },
-	{ REG_WRITE, 0x6b88, 0x2000, 0x00083d5f },
-	{ REG_WRITE, 0x6b8c, 0x2000, 0x0000800f },
-	{ REG_WRITE, 0x6b54, 0x2000, 0x00000110 },
-	{ REG_WRITE, 0x6b58, 0x2000, 0x00040400 },
-	{ REG_WRITE, 0x6940, 0x2000, 0x00000020 },
-	{ REG_WRITE, 0x6908, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6974, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6978, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_QM_CONTROL, 0x2000, 0x003f0003 },
-	{ REG_WRITE, 0x6abc, 0x2000, 0x0c000202 },
-	{ REG_WRITE, TVW_TBC_SM_VBI_V_START, 0x2000, 0xf0080c00 },
-	{ REG_WRITE, TVW_TBC_SM_VBI_V_END, 0x2000, 0x070b0008 },
-	{ REG_WRITE, TVW_PWM3_CLAMP_GAIN, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VPLL_DBG_PORT, 0x2000, 0x00000001 },
-	{ REG_WRITE, 0x697c, 0x2000, 0x00000001 },
-	{ REG_WRITE, 0x6ac4, 0x2000, 0x00000001 },
-	{ REG_WRITE, 0x6ac0, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_CBCR_DELAY, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_OFFSET_SKEW, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_PAUSE, 0x2000, 0xf8000000 },
-	{ REG_WRITE, TVW_TBC_PLL_OVER_GAIN, 0x2000, 0x00003d78 },
-	{ REG_WRITE, TVW_TBC_LINE_BUF_FREQ_DIF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_LINE_BUF_READ_DISTANCE, 0x2000, 0xffffffff },
-	{ REG_WRITE, 0x68a4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ae8, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ad0, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6ad4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ad8, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6adc, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ae0, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6ae4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6aec, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6af0, 0x2000, 0x07f80000 },
-	{ REG_WRITE, 0x6af4, 0x2000, 0x00001000 },
-	{ REG_WRITE, 0x6af8, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6afc, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6b00, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6b04, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a10, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a14, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a18, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a1c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a20, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a58, 0x2000, 0x00000004 },
-	{ REG_WRITE, 0x6a24, 0x2000, 0x0000001c },
-	{ REG_WRITE, 0x6a28, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a2c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a30, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a40, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a44, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a48, 0x2000, 0x00000003 },
-	{ REG_WRITE, 0x6b08, 0x2000, 0x00008000 },
-	{ REG_WRITE, 0x6a4c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a50, 0x2000, 0x07380060 },
-	{ REG_WRITE, 0x6a54, 0x2000, 0x0000063c },
-	{ REG_WRITE, 0x6a5c, 0x2000, 0x000000c0 },
-	{ REG_WRITE, 0x6a60, 0x2000, 0x00000200 },
-	{ REG_WRITE, 0x6a64, 0x2000, 0xc1220000 },
-	{ REG_WRITE, 0x6a68, 0x2000, 0x93281c00 },
-	{ REG_WRITE, 0x6a6c, 0x2000, 0x608f0000 },
-	{ REG_WRITE, 0x6a70, 0x2000, 0x00000a00 },
-	{ REG_WRITE, 0x6a74, 0x2000, 0xeca86420 },
-	{ REG_WRITE, 0x6a78, 0x2000, 0x00001040 },
-	{ REG_WRITE, 0x6a7c, 0x2000, 0x01f40023 },
-	{ REG_WRITE, 0x6a80, 0x2000, 0x00000032 },
-	{ REG_WRITE, 0x6a84, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a88, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68f0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a9c, 0x2000, 0x00200000 },
-	{ REG_WRITE, 0x6aa0, 0x2000, 0x38080010 },
-	{ REG_WRITE, 0x6aa4, 0x2000, 0x0038022f },
-	{ REG_WRITE, 0x6aa8, 0x2000, 0x00003038 },
-	{ REG_WRITE, 0x6ab0, 0x2000, 0x00001020 },
-	{ REG_WRITE, 0x6ab4, 0x2000, 0x00800040 },
-	{ REG_WRITE, 0x6ab8, 0x2000, 0x010000c0 },
-	{ REG_WRITE, TVW_CKILL_5_6, 0x2000, 0x00000080 },
-	{ REG_WRITE, 0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68a8, 0x2000, 0x00002000 },
-	{ REG_WRITE, 0x696c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6938, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6b50, 0x2000, 0x01000700 },
-	{ REG_WRITE, 0x6b20, 0x2000, 0x000000a6 },
-	{ REG_WRITE, 0x6b28, 0x2000, 0x000000e4 },
-	{ REG_WRITE, 0x6b24, 0x2000, 0x000000e4 },
-	{ REG_READ,  0x6904, 0x2000, 0xe40f000f },
-	{ REG_WRITE, 0x6904, 0x2000, 0xe400100f },
-	{ REG_READ,  TVW_CPU_BURST_PHASE, 0x2000, 0x000306aa },
-	{ REG_WRITE, TVW_CPU_BURST_PHASE, 0x2000, 0x000306aa },
-	{ REG_READ,  TVW_CPU_PAL_MOD, 0x2000, 0x000206aa },
-	{ REG_WRITE, TVW_CPU_PAL_MOD, 0x2000, 0x000206aa },
-	{ REG_WRITE, TVW_CKILL_5_6, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_CKILL_DB3_4, 0x2000, 0x00030003 },
-	{ REG_WRITE, TVW_CKILL_DB3_4, 0x2000, 0x00020003 },
-	{ REG_READ,  TVW_W9_10, 0x2000, 0x00100010 },
-	{ REG_WRITE, TVW_W9_10, 0x2000, 0x01000100 },
-	{ REG_READ,  TVW_W11, 0x2000, 0x00010001 },
-	{ REG_WRITE, TVW_W11, 0x2000, 0x01000100 },
-	{ REG_WRITE, TVW_YC_CONTROL, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_YC_DB1, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_NM_DB1_2, 0x2000, 0x00005ceb },
-	{ REG_WRITE, TVW_CKILL_DB1_2, 0x2000, 0x001c001c },
-	{ REG_WRITE, 0x6c1c, 0x2000, 0x0002a25a },
-	{ REG_WRITE, 0x6cac, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cb0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cb4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cb8, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cbc, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cc0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cc4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cc8, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ccc, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cd0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cd4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cd8, 0x2000, 0x00001001 },
-	{ REG_WRITE, 0x6cdc, 0x2000, 0x00009009 },
-	{ REG_WRITE, 0x6ce0, 0x2000, 0x00f3cf3c },
-	{ REG_WRITE, 0x6ce4, 0x2000, 0x0013b13b },
-	{ REG_WRITE, 0x6ce8, 0x2000, 0x00161161 },
-	{ REG_WRITE, 0x6cec, 0x2000, 0x0043c43c },
-	{ REG_WRITE, 0x6c7c, 0x2000, 0x00001d90 },
-	{ REG_WRITE, 0x6cf0, 0x2000, 0x03008740 },
-	{ REG_WRITE, 0x6c5c, 0x2000, 0x0f1a8080 },
-	{ REG_WRITE, 0x6c78, 0x2000, 0x20202cc0 },
-	{ REG_READ,  0x6ca0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ca0, 0x2000, 0x00000003 },
-	{ REG_WRITE, 0x6c8c, 0x2000, 0xff0000ff },
-	{ REG_WRITE, 0x6c90, 0x2000, 0xffffffff },
-	{ REG_WRITE, 0x6cf4, 0x2000, 0x676780d0 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  0x6ad4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ad4, 0x2000, 0x00000000 },
-	{ REG_READ,  0x6ad0, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6ad0, 0x2000, 0x02000200 },
-	{ REG_READ,  0x6a90, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a90, 0x2000, 0x00000000 },
-	{ REG_READ,  0x6ae0, 0x2000, 0x02000200 },
-	{ REG_READ,  0x6ad8, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6ae0, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6ad8, 0x2000, 0x02000200 },
-	{ REG_READ,  0x68f0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68f0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6b3c, 0x2000, 0x00000022 },
-	{ REG_READ,  0x6b40, 0x2000, 0x03e803e8 },
-	{ REG_WRITE, 0x6b40, 0x2000, 0x03e803e8 },
-	{ REG_WRITE, 0x6b44, 0x2000, 0x1b2f806b },
-	{ REG_READ,  TVW_RBBM_CTRL, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_RBBM_CTRL, 0x2000, 0x00000001 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa37 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa37 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa37 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x00070155 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa37 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa37 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x00070155 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa37 },
-	{ REG_READ,  TVW_MPLL_CONTROL, 0x2000, 0x0001a008 },
-	{ REG_READ,  TVW_FPLL_CONTROL, 0x2000, 0x87000024 },
-	{ REG_READ,  TVW_XPLL_CONTROL, 0x2000, 0x0018c600 },
-	{ REG_READ,  TVW_VPLL_CONTROL_0, 0x2000, 0x00c00000 },
-	{ REG_READ,  TVW_VPLL_CONTROL_1, 0x2000, 0x00000001 },
-	{ REG_READ,  TVW_APLL_CONTROL_0, 0x2000, 0x000000a8 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a008 },
-	{ REG_READ,  0x093c, 0x2000, 0x87000024 },
-	{ REG_READ,  0x0940, 0x2000, 0x004ad600 },
-	{ REG_READ,  0x0944, 0x2000, 0x33950000 },
-	{ REG_READ,  0x0948, 0x2000, 0x0002dc37 },
-	{ REG_READ,  0x094c, 0x2000, 0x000000a8 },
-	{ REG_READ,  TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa37 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x00070155 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x00070155 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00fffa30 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00ffda30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00ffda30 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00ff5a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00ff5a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x00070155 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-
-	{ .op = MAX_REG_OP },
-};
-
-struct tvwsdr_reg_cmd tvw_init2[] = {
-	{ REG_WRITE, 0xe000, 0x1000, 0x00000050 },
-	{ REG_READ,  TVW_GPIO_OUTPUT_ENABLE, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_GPIO_OUTPUT_ENABLE, 0x2000, 0x0000033e },
-	{ REG_READ,  TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x0000000c },
-	{ REG_READ,  TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x0000000c },
-	{ REG_READ,  TVW_GPIO_PORT_CONTROL, 0x2000, 0x07ff0001 },
-	{ REG_WRITE, TVW_GPIO_PORT_CONTROL, 0x2000, 0x07ff0001 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-
-	{ .op = MAX_REG_OP },
-};
-
-/* Register 0x4400 appears to be some sort of communication with a micro.
- * To read something from it, write 0x40XXYYZZ to 0x4400 where XXYY is the
- * register (which seems to start at 0xf000) and ZZ is 0x00.  Then, read
- * from 0x4400.  XXYY will be the same data written previously, but ZZ will
- * be the register's contents.
- * To write something, write 0x80XXYYZZ where XXYY is as before, but ZZ is
- * the data to write.
- */
-
-struct tvwsdr_reg_cmd tvw_init3[] = {
-	{ REG_READ,  TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x0000000c },
-	{ REG_READ,  0x08f8, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x08f8, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_VIDEO_INPUT_0_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VIDEO_INPUT_0_CONTROL, 0x2000, 0xa01f0000 },
-	{ REG_READ,  TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x00000404 },
-	{ REG_WRITE, TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x000f8524 },
-	{ REG_READ,  TVW_VIDEO_INPUT_1_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VIDEO_INPUT_1_CONTROL, 0x2000, 0x001f0000 },
-	{ REG_READ,  TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x00000404 },
-	{ REG_WRITE, TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x020f853e },
-	{ UC_WRITE,  0xf008,      0,       0xff },
-	{ UC_WRITE,  0xf009,      0,       0x7f },
-	{ UC_WRITE,  0xf00a,      0,       0xdf },
-	{ UC_WRITE,  0xf101,      0,       0x00 },
-	{ UC_READ,   0xf00d,      0,       0x00 },
-	{ UC_WRITE,  0xf00d,      0,       0xff },
-	{ UC_READ,   0xf00b,      0,       0x00 },
-	{ UC_WRITE,  0xf00b,      0,       0xc0 },
-	{ UC_READ,   0xf301,      0,       0x00 },
-	{ UC_WRITE,  0xf301,      0,       0x1f },
-	{ UC_WRITE,  0xf00e,      0,       0x80 },
-	{ UC_WRITE,  0xf01a,      0,       0xff },
-	{ UC_WRITE,  0xf01b,      0,       0xfc },
-	{ UC_WRITE,  0xf01e,      0,       0xff },
-	{ UC_READ,   0xf02b,      0,       0x30 },
-	{ UC_WRITE,  0xf02b,      0,       0x30 },
-	{ UC_READ,   0xf00b,      0,       0xc0 },
-	{ UC_WRITE,  0xf00b,      0,       0xc0 },
-	{ UC_WRITE,  0xf008,      0,       0x50 },
-	{ UC_WRITE,  0xf009,      0,       0x00 },
-	{ UC_WRITE,  0xf00a,      0,       0x00 },
-	{ UC_READ,   0xf02b,      0,       0x30 },
-	{ UC_WRITE,  0xf02b,      0,       0x20 },
-	{ UC_READ,   0xf00b,      0,       0xc0 },
-	{ UC_WRITE,  0xf00b,      0,       0x80 },
-	{ UC_READ,   0xf00d,      0,       0xff },
-	{ UC_WRITE,  0xf00d,      0,       0x9f },
-	{ UC_READ,   0xf00d,      0,       0x9f },
-	{ UC_WRITE,  0xf00d,      0,       0xff },
-	{ UC_READ,   0xf00c,      0,       0x00 },
-	{ UC_WRITE,  0xf00c,      0,       0x07 },
-	{ UC_READ,   0xf00b,      0,       0x80 },
-	{ UC_WRITE,  0xf00b,      0,       0xc0 },
-	{ UC_READ,   0xf00d,      0,       0xff },
-	{ UC_WRITE,  0xf00d,      0,       0x00 },
-	{ UC_READ,   0xf00c,      0,       0x07 },
-	{ UC_WRITE,  0xf00c,      0,       0x00 },
-	{ UC_READ,   0xf00b,      0,       0xc0 },
-	{ UC_WRITE,  0xf00b,      0,       0x00 },
-	{ UC_READ,   0xf089,      0,       0x80 },
-	{ UC_WRITE,  0xf089,      0,       0x80 },
-	{ UC_WRITE,  0xf09f,      0,       0x00 },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_WRITE,  0xf09d,      0,       0x00 },
-	{ UC_WRITE,  0xf09e,      0,       0x00 },
-	{ UC_WRITE,  0xf02a,      0,       0x40 },
-	{ UC_WRITE,  0xf081,      0,       0x00 },
-	{ UC_WRITE,  0xf082,      0,       0x00 },
-	{ UC_WRITE,  0xf083,      0,       0x00 },
-	{ UC_WRITE,  0xf084,      0,       0x00 },
-	{ UC_WRITE,  0xf085,      0,       0x00 },
-	{ UC_WRITE,  0xf086,      0,       0x00 },
-	{ UC_WRITE,  0xf090,      0,       0x00 },
-	{ UC_WRITE,  0xf091,      0,       0x00 },
-	{ UC_WRITE,  0xf092,      0,       0x00 },
-	{ UC_WRITE,  0xf093,      0,       0x00 },
-	{ UC_WRITE,  0xf094,      0,       0x00 },
-	{ UC_WRITE,  0xf095,      0,       0x00 },
-	{ UC_WRITE,  0xf096,      0,       0x00 },
-
-	{ .op = MAX_REG_OP },
-};
-
-struct tvwsdr_reg_cmd tvw_init4[] = {
-	{ UC_READ,   0xf02a,      0,       0x40 },
-	{ UC_WRITE,  0xf02a,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x00 },
-	/* 0x8e1a is T507.bin fw size */
-	{ UC_WRITE,  0xf0a0,      0,       0x8e },
-	{ UC_WRITE,  0xf0a1,      0,       0x1a },
-	{ UC_WRITE,  0xf0a2,      0,       0xef },
-	{ UC_WRITE,  0xf0a3,      0,       0x36 },
-	{ UC_WRITE,  0xf09f,      0,       0xbc },
-	{ UC_READ,   0xf089,      0,       0x80 },
-	{ UC_WRITE,  0xf089,      0,       0x00 },
-	{ REG_SLEEP,      0,      0,        100 },
-	{ UC_READ,   0xf09c,      0,       0xbc },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x3c },
-	{ UC_READ,   0xf00b,      0,       0x00 },
-	{ UC_WRITE,  0xf00b,      0,       0x00 },
-	{ UC_READ,   0xf00b,      0,       0x00 },
-	{ UC_WRITE,  0xf00b,      0,       0x00 },
-	{ UC_READ,   0xf024,      0,       0x80 },
-	{ UC_WRITE,  0xf024,      0,       0x00 },
-	{ UC_READ,   0xf024,      0,       0x00 },
-	{ UC_READ,   0xf025,      0,       0x04 },
-	{ UC_READ,   0xf026,      0,       0x17 },
-	{ UC_READ,   0xf09f,      0,       0x3c },
-	{ UC_WRITE,  0xf0a0,      0,       0x0c },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x0d },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x0e },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x0f },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x10 },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x11 },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x12 },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x13 },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x14 },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x15 },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x16 },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x17 },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x18 },
-	{ UC_WRITE,  0xf0a1,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x0c },
-	{ UC_WRITE,  0xf0a1,      0,       0x01 },
-	{ UC_WRITE,  0xf0a2,      0,       0xc2 },
-	{ UC_WRITE,  0xf0a3,      0,       0x60 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x0d },
-	{ UC_WRITE,  0xf0a1,      0,       0x01 },
-	{ UC_WRITE,  0xf0a2,      0,       0xc2 },
-	{ UC_WRITE,  0xf0a3,      0,       0x60 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x0e },
-	{ UC_WRITE,  0xf0a1,      0,       0x01 },
-	{ UC_WRITE,  0xf0a2,      0,       0xc2 },
-	{ UC_WRITE,  0xf0a3,      0,       0x60 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x1d },
-	{ UC_WRITE,  0xf0a1,      0,       0x07 },
-	{ UC_WRITE,  0xf0a2,      0,       0xc2 },
-	{ UC_WRITE,  0xf0a3,      0,       0x60 },
-	{ UC_WRITE,  0xf0a4,      0,       0xd7 },
-	{ UC_WRITE,  0xf0a5,      0,       0x07 },
-	{ UC_WRITE,  0xf0a6,      0,       0xc8 },
-	{ UC_WRITE,  0xf0a7,      0,       0x22 },
-	{ UC_WRITE,  0xf0a8,      0,       0xd5 },
-	{ UC_WRITE,  0xf0a9,      0,       0x33 },
-	{ UC_WRITE,  0xf0aa,      0,       0xc6 },
-	{ UC_WRITE,  0xf0ab,      0,       0x35 },
-	{ UC_WRITE,  0xf0ac,      0,       0xcd },
-	{ UC_WRITE,  0xf0ad,      0,       0x15 },
-	{ UC_WRITE,  0xf0ae,      0,       0xc3 },
-	{ UC_WRITE,  0xf0af,      0,       0x04 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x1e },
-	{ UC_WRITE,  0xf0a1,      0,       0x04 },
-	{ UC_WRITE,  0xf0a2,      0,       0xd5 },
-	{ UC_WRITE,  0xf0a3,      0,       0x00 },
-	{ UC_WRITE,  0xf0a4,      0,       0xc6 },
-	{ UC_WRITE,  0xf0a5,      0,       0x00 },
-	{ UC_WRITE,  0xf0a6,      0,       0xcd },
-	{ UC_WRITE,  0xf0a7,      0,       0x00 },
-	{ UC_WRITE,  0xf0a8,      0,       0xc3 },
-	{ UC_WRITE,  0xf0a9,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x0f },
-	{ UC_WRITE,  0xf0a1,      0,       0x01 },
-	{ UC_WRITE,  0xf0a2,      0,       0xc2 },
-	{ UC_WRITE,  0xf0a3,      0,       0x60 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x1f },
-	{ UC_WRITE,  0xf0a1,      0,       0x07 },
-	{ UC_WRITE,  0xf0a2,      0,       0xc2 },
-	{ UC_WRITE,  0xf0a3,      0,       0x60 },
-	{ UC_WRITE,  0xf0a4,      0,       0xd7 },
-	{ UC_WRITE,  0xf0a5,      0,       0x07 },
-	{ UC_WRITE,  0xf0a6,      0,       0xc8 },
-	{ UC_WRITE,  0xf0a7,      0,       0x22 },
-	{ UC_WRITE,  0xf0a8,      0,       0xd5 },
-	{ UC_WRITE,  0xf0a9,      0,       0x33 },
-	{ UC_WRITE,  0xf0aa,      0,       0xc6 },
-	{ UC_WRITE,  0xf0ab,      0,       0x35 },
-	{ UC_WRITE,  0xf0ac,      0,       0xcd },
-	{ UC_WRITE,  0xf0ad,      0,       0x15 },
-	{ UC_WRITE,  0xf0ae,      0,       0xc3 },
-	{ UC_WRITE,  0xf0af,      0,       0x04 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x20 },
-	{ UC_WRITE,  0xf0a1,      0,       0x04 },
-	{ UC_WRITE,  0xf0a2,      0,       0xd5 },
-	{ UC_WRITE,  0xf0a3,      0,       0x00 },
-	{ UC_WRITE,  0xf0a4,      0,       0xc6 },
-	{ UC_WRITE,  0xf0a5,      0,       0x00 },
-	{ UC_WRITE,  0xf0a6,      0,       0xcd },
-	{ UC_WRITE,  0xf0a7,      0,       0x00 },
-	{ UC_WRITE,  0xf0a8,      0,       0xc3 },
-	{ UC_WRITE,  0xf0a9,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x10 },
-	{ UC_WRITE,  0xf0a1,      0,       0x01 },
-	{ UC_WRITE,  0xf0a2,      0,       0xc2 },
-	{ UC_WRITE,  0xf0a3,      0,       0x60 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x21 },
-	{ UC_WRITE,  0xf0a1,      0,       0x07 },
-	{ UC_WRITE,  0xf0a2,      0,       0xc2 },
-	{ UC_WRITE,  0xf0a3,      0,       0x60 },
-	{ UC_WRITE,  0xf0a4,      0,       0xd7 },
-	{ UC_WRITE,  0xf0a5,      0,       0x07 },
-	{ UC_WRITE,  0xf0a6,      0,       0xc8 },
-	{ UC_WRITE,  0xf0a7,      0,       0x22 },
-	{ UC_WRITE,  0xf0a8,      0,       0xd5 },
-	{ UC_WRITE,  0xf0a9,      0,       0x33 },
-	{ UC_WRITE,  0xf0aa,      0,       0xc6 },
-	{ UC_WRITE,  0xf0ab,      0,       0x35 },
-	{ UC_WRITE,  0xf0ac,      0,       0xcd },
-	{ UC_WRITE,  0xf0ad,      0,       0x15 },
-	{ UC_WRITE,  0xf0ae,      0,       0xc3 },
-	{ UC_WRITE,  0xf0af,      0,       0x04 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x22 },
-	{ UC_WRITE,  0xf0a1,      0,       0x04 },
-	{ UC_WRITE,  0xf0a2,      0,       0xd5 },
-	{ UC_WRITE,  0xf0a3,      0,       0x00 },
-	{ UC_WRITE,  0xf0a4,      0,       0xc6 },
-	{ UC_WRITE,  0xf0a5,      0,       0x00 },
-	{ UC_WRITE,  0xf0a6,      0,       0xcd },
-	{ UC_WRITE,  0xf0a7,      0,       0x00 },
-	{ UC_WRITE,  0xf0a8,      0,       0xc3 },
-	{ UC_WRITE,  0xf0a9,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x03 },
-	{ UC_WRITE,  0xf0a1,      0,       0x01 },
-	{ UC_WRITE,  0xf0a2,      0,       0x32 },
-	{ UC_WRITE,  0xf0a3,      0,       0x18 },
-	{ UC_WRITE,  0xf0a4,      0,       0x6a },
-	{ UC_WRITE,  0xf0a5,      0,       0x18 },
-	{ UC_WRITE,  0xf0a6,      0,       0x6a },
-	{ UC_WRITE,  0xf0a7,      0,       0x18 },
-	{ UC_WRITE,  0xf0a8,      0,       0x6a },
-	{ UC_WRITE,  0xf0a9,      0,       0x18 },
-	{ UC_WRITE,  0xf0aa,      0,       0x6a },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf117,      0,       0xc1 },
-	{ UC_WRITE,  0xf117,      0,       0x71 },
-	{ UC_READ,   0xf00e,      0,       0x80 },
-	{ UC_WRITE,  0xf00e,      0,       0x00 },
-	{ UC_READ,   0xf00f,      0,       0x00 },
-	{ UC_WRITE,  0xf00f,      0,       0x18 },
-	{ UC_READ,   0xf480,      0,       0x00 },
-	{ UC_WRITE,  0xf480,      0,       0x00 },
-	{ UC_READ,   0xf00d,      0,       0x00 },
-	{ UC_WRITE,  0xf00d,      0,       0x10 },
-	{ UC_WRITE,  0xf00d,      0,       0x00 },
-	{ UC_READ,   0xf480,      0,       0x00 },
-	{ UC_WRITE,  0xf480,      0,       0x0c },
-	{ UC_WRITE,  0xf481,      0,       0x00 },
-	{ UC_WRITE,  0xf48d,      0,       0x00 },
-	{ UC_WRITE,  0xf482,      0,       0x80 },
-	{ UC_WRITE,  0xf483,      0,       0x00 },
-	{ UC_WRITE,  0xf484,      0,       0x00 },
-	{ UC_WRITE,  0xf488,      0,       0x06 },
-	{ UC_WRITE,  0xf48c,      0,       0x00 },
-	{ UC_WRITE,  0xf48b,      0,       0x00 },
-	{ UC_READ,   0xf480,      0,       0x0c },
-	{ UC_WRITE,  0xf480,      0,       0x4c },
-	{ REG_READ,  0x08f8, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x08f8, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_VIDEO_INPUT_0_CONTROL, 0x2000, 0xa01f0000 },
-	{ REG_WRITE, TVW_VIDEO_INPUT_0_CONTROL, 0x2000, 0xa01f0000 },
-	{ REG_READ,  TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x000f8524 },
-	{ REG_WRITE, TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x000f8524 },
-	{ REG_READ,  TVW_VIDEO_INPUT_1_CONTROL, 0x2000, 0x001f0000 },
-	{ REG_WRITE, TVW_VIDEO_INPUT_1_CONTROL, 0x2000, 0x001f0000 },
-	{ REG_READ,  TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x020f853e },
-	{ REG_WRITE, TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x020f853e },
-	{ UC_READ,   0xf00d,      0,       0x00 },
-	{ UC_WRITE,  0xf00d,      0,       0x01 },
-	{ UC_WRITE,  0xf00d,      0,       0x00 },
-	{ REG_WRITE, TVW_TSI_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_PATCH_REG, 0x2000, 0x00000001 },
-	{ UC_WRITE,  0xf0b2,      0,       0x00 },
-	{ UC_WRITE,  0xf0b3,      0,       0x00 },
-	{ UC_WRITE,  0xf0b4,      0,       0x00 },
-	{ UC_WRITE,  0xf0b5,      0,       0x00 },
-	{ UC_READ,   0xf00b,      0,       0x00 },
-	{ UC_WRITE,  0xf00b,      0,       0x40 },
-	{ UC_WRITE,  0xf00b,      0,       0x00 },
-	{ UC_READ,   0xf02b,      0,       0x00 },
-	{ UC_WRITE,  0xf02b,      0,       0x00 },
-	{ UC_READ,   0xf00d,      0,       0x00 },
-	{ UC_WRITE,  0xf00d,      0,       0x01 },
-	{ UC_WRITE,  0xf00d,      0,       0x00 },
-	{ UC_WRITE,  0xf00d,      0,       0x02 },
-	{ UC_WRITE,  0xf00d,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0xe2 },
-	{ UC_WRITE,  0xf0a1,      0,       0xed },
-	{ UC_WRITE,  0xf0a2,      0,       0x8b },
-	{ UC_WRITE,  0xf0a3,      0,       0x9b },
-	{ UC_WRITE,  0xf0a4,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9a },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9a },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1a },
-	{ UC_WRITE,  0xf101,      0,       0x00 },
-	{ UC_WRITE,  0xf100,      0,       0x00 },
-	{ UC_WRITE,  0xf117,      0,       0x07 },
-	{ UC_WRITE,  0xf11c,      0,       0x00 },
-	{ UC_WRITE,  0xf11d,      0,       0x00 },
-	{ UC_WRITE,  0xf106,      0,       0x00 },
-	{ UC_WRITE,  0xf10d,      0,       0x00 },
-	{ UC_WRITE,  0xf103,      0,       0x00 },
-	{ UC_WRITE,  0xf102,      0,       0x60 },
-	{ UC_WRITE,  0xf101,      0,       0x04 },
-	{ UC_READ,   0xf09f,      0,       0x1a },
-	{ UC_WRITE,  0xf0a0,      0,       0x01 },
-	{ UC_WRITE,  0xf0a1,      0,       0x02 },
-	{ UC_WRITE,  0xf0a2,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_READ,   0xf480,      0,       0x6c },
-	{ UC_WRITE,  0xf480,      0,       0x2c },
-	{ UC_READ,   0xf00d,      0,       0x00 },
-	{ UC_WRITE,  0xf00d,      0,       0x10 },
-	{ UC_WRITE,  0xf00d,      0,       0x00 },
-	{ UC_READ,   0xf480,      0,       0x00 },
-	{ UC_WRITE,  0xf480,      0,       0x04 },
-	{ UC_WRITE,  0xf481,      0,       0x00 },
-	{ UC_WRITE,  0xf48d,      0,       0x00 },
-	{ UC_WRITE,  0xf482,      0,       0x80 },
-	{ UC_WRITE,  0xf483,      0,       0x00 },
-	{ UC_WRITE,  0xf484,      0,       0x00 },
-	{ UC_WRITE,  0xf488,      0,       0x00 },
-	{ UC_WRITE,  0xf48c,      0,       0x00 },
-	{ UC_WRITE,  0xf48b,      0,       0x00 },
-	{ UC_READ,   0xf480,      0,       0x04 },
-	{ UC_WRITE,  0xf480,      0,       0x44 },
-	{ UC_WRITE,  0xf090,      0,       0x80 },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf091,      0,       0x80 },
-	{ UC_WRITE,  0xf063,      0,       0x01 },
-	{ UC_WRITE,  0xf101,      0,       0x04 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00ff5a30 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00ff5a30 },
-
-	{ .op = MAX_REG_OP },
-};
-
-struct tvwsdr_reg_cmd tvw_init5[] = {
-	{ REG_READ,  TVW_MPLL_CONTROL, 0x2000, 0x0001a008 },
-	{ REG_READ,  TVW_FPLL_CONTROL, 0x2000, 0x87000024 },
-	{ REG_READ,  TVW_XPLL_CONTROL, 0x2000, 0x0018c600 },
-	{ REG_READ,  TVW_VPLL_CONTROL_0, 0x2000, 0x00c00000 },
-	{ REG_READ,  TVW_VPLL_CONTROL_1, 0x2000, 0x00000001 },
-	{ REG_READ,  TVW_APLL_CONTROL_0, 0x2000, 0x000000a8 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a008 },
-	{ REG_READ,  0x093c, 0x2000, 0x87000024 },
-	{ REG_READ,  0x0940, 0x2000, 0x004ad600 },
-	{ REG_READ,  0x0944, 0x2000, 0x33950000 },
-	{ REG_READ,  0x0948, 0x2000, 0x0002dc37 },
-	{ REG_READ,  0x094c, 0x2000, 0x000000a8 },
-	{ REG_READ,  TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00ff5a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x00070155 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00ff5a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00ff5a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x00070155 },
-	{ REG_READ,  TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a008 },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a108 },
-	{ REG_WRITE, TVW_AVSYNC_STC_WINDOW, 0x2000, 0x000cdfe5 },
-	{ REG_WRITE, TVW_AVSYNC_SCLK_WINDOW, 0x2000, 0x000176ff },
-	{ REG_WRITE, TVW_AVSYNC_AUDIO_GAIN, 0x2000, 0x28800880 },
-	{ REG_READ,  TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x0000000c },
-	{ REG_READ,  TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x0000000c },
-	{ REG_READ,  TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0002 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a108 },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a108 },
-	{ REG_WRITE, TVW_AVSYNC_STC_WINDOW, 0x2000, 0x000cdfe5 },
-	{ REG_WRITE, TVW_AVSYNC_SCLK_WINDOW, 0x2000, 0x000176ff },
-	{ REG_WRITE, TVW_AVSYNC_AUDIO_GAIN, 0x2000, 0x28800880 },
-	{ REG_READ,  TVW_PCI_PORT_RDATA_1, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x00ff5a30 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00ff5a30 },
-	{ E0_MAGIC,       0,      0, 0x00000151 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_1, 0x2000, 0x20070154 },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a119 },
-	{ UC_WRITE,  0xf00d,      0,       0xe0 },
-	{ UC_WRITE,  0xf00c,      0,       0x07 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  0x08ac, 0x2000, 0x0000f0a8 },
-	{ REG_WRITE, 0x08ac, 0x2000, 0x0000f0a0 },
-	{ REG_READ,  TVW_VOLTAGE_CONTROL0, 0x2000, 0x05030209 },
-	{ REG_WRITE, TVW_VOLTAGE_CONTROL0, 0x2000, 0x05ff0209 },
-	{ REG_READ,  TVW_USB_PATCH_REG, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_USB_PATCH_REG, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	// ^^^ ati_00.pcap 35902, ati_00_array.txt 8852
-	// 20 second gap
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x20070154 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_1, 0x2000, 0x20070154 },
-	{ REG_READ,  TVW_VIDEO_INPUT_0_CONTROL, 0x2000, 0xa01f0000 },
-	{ REG_READ,  TVW_VIDEO_INPUT_1_CONTROL, 0x2000, 0x001f0000 },
-	{ REG_READ,  TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x000f8524 },
-	{ REG_READ,  TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x020f853e },
-	{ REG_WRITE, TVW_VIDEO_INPUT_0_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VIDEO_INPUT_1_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x001fda30 },
-	{ E0_MAGIC,       0,      0, 0x00000151 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_1, 0x2000, 0x20070154 },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a119 },
-	{ UC_WRITE,  0xf00d,      0,       0xe0 },
-	{ UC_WRITE,  0xf00c,      0,       0x07 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  0x08ac, 0x2000, 0x0000f0a0 },
-	{ REG_WRITE, 0x08ac, 0x2000, 0x0000f0a0 },
-	{ REG_READ,  TVW_VOLTAGE_CONTROL0, 0x2000, 0x05ff0209 },
-	{ REG_WRITE, TVW_VOLTAGE_CONTROL0, 0x2000, 0x05ff0209 },
-	{ REG_READ,  TVW_USB_PATCH_REG, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_USB_PATCH_REG, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-
-	{ .op = MAX_REG_OP },
-}; // ati_00.pcap 36058, ati_00_array.txt 8891
-
-struct tvwsdr_reg_cmd tvw_init6[] = {
-	{ REG_READ,  TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_GPIO_OUTPUT_VALUE, 0x2000, 0x0000001c },
-	{ REG_READ,  TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0002 },
-	{ REG_WRITE, TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_READ,  TVW_MPLL_CONTROL, 0x2000, 0x0001a008 },
-	{ REG_READ,  TVW_FPLL_CONTROL, 0x2000, 0x87000024 },
-	{ REG_READ,  TVW_XPLL_CONTROL, 0x2000, 0x0018c600 },
-	{ REG_READ,  TVW_VPLL_CONTROL_0, 0x2000, 0x00c00000 },
-	{ REG_READ,  TVW_VPLL_CONTROL_1, 0x2000, 0x00000001 },
-	{ REG_READ,  TVW_APLL_CONTROL_0, 0x2000, 0x000000a8 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a119 },
-	{ REG_READ,  0x093c, 0x2000, 0x87000024 },
-	{ REG_READ,  0x0940, 0x2000, 0x004ad600 },
-	{ REG_READ,  0x0944, 0x2000, 0x33950000 },
-	{ REG_READ,  0x0948, 0x2000, 0x0002dc37 },
-	{ REG_READ,  0x094c, 0x2000, 0x00000028 },
-	{ REG_READ,  TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x20070154 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x20070154 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_1, 0x2000, 0x20070155 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a30 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a35 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a35 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x20070155 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a119 },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a11b },
-	{ REG_READ,  0x0940, 0x2000, 0x004ad600 },
-	{ REG_WRITE, 0x0940, 0x2000, 0x004ad600 },
-	{ REG_READ,  0x0944, 0x2000, 0x33950000 },
-	{ REG_WRITE, 0x0944, 0x2000, 0x33950000 },
-	{ REG_READ,  0x0948, 0x2000, 0x0002dc37 },
-	{ REG_WRITE, 0x0948, 0x2000, 0x0002dc37 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a11b },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a10b },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a108 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000100 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x000000ff },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c0 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_WRITE, TVW_ADEC_MIXER2_DTO, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000006 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000009 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffed },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffae },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff84 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff58 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff2f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff13 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff24 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff67 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffdd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000008a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000016f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000288 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000003cd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000052e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000699 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000007f8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000934 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000a38 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000af0 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b50 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fff8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fff3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffec },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffdc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd4 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffce },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffcb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffcd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffed },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000087 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000000de },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000014a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000001c9 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000025a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000002f9 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000003a2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000450 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000004fd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000005a3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000063a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000006bb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000722 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000076a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000078e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000003f },
-	{ REG_WRITE, TVW_ADEC_DEMOD1_CONTROL, 0x2000, 0x00000900 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO3, 0x2000, 0x001e82d7 },
-	{ REG_WRITE, TVW_ADEC_PILOT_CHANNEL, 0x2000, 0x00000a2c },
-	{ REG_WRITE, TVW_ADEC_SAP_CHANNEL, 0x2000, 0x00000a09 },
-	{ REG_WRITE, TVW_ADEC_POWER_LPF1, 0x2000, 0x000000aa },
-	{ REG_WRITE, TVW_ADEC_POWER_LPF2, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_MEASURE, 0x2000, 0x00002a00 },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_THRD_HIGH, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_THRD_LOW, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_MEASURE, 0x2000, 0x000027e0 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_THRD_HIGH, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_THRD_LOW, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_MEASURE, 0x2000, 0x01ae1e60 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_MEASURE, 0x2000, 0x0006007d },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_WRITE, TVW_ADEC_DECIMATOR_BYPASS_CONTROL, 0x2000, 0x00080140 },
-	{ REG_WRITE, TVW_ADEC_FIR2_CONTROL, 0x2000, 0x00037f05 },
-	{ REG_WRITE, TVW_ADEC_DEMOD2_CONTROL, 0x2000, 0x000000e8 },
-	{ REG_WRITE, TVW_ADEC_UPSAMPLER_GAIN, 0x2000, 0x00000e00 },
-	{ REG_WRITE, TVW_ADEC_EXPANDER_WIDEBAND_GAIN, 0x2000, 0x00003ff0 },
-	{ REG_WRITE, TVW_ADEC_EXPANDER_SPECTRAL_GAIN, 0x2000, 0x00002c0a },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_WRITE, TVW_ADEC_AVC_LPF, 0x2000, 0x00000020 },
-	{ REG_WRITE, TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_NOTCH_ZERO, 0x2000, 0x00800010 },
-	{ REG_WRITE, TVW_ADEC_NOTCH_POLE, 0x2000, 0x007fc01a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_ACQUIRE_LPF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_TRACKING_LPF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_FIFO_K1, 0x2000, 0x00000576 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_FIFO_K2, 0x2000, 0x0000001d },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_THROTTLE_FACTOR, 0x2000, 0x00000008 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_THROTTLE_THRD, 0x2000, 0x00000008 },
-	{ REG_WRITE, TVW_ADEC_FIFO_STATUS, 0x2000, 0x00000007 },
-	{ REG_WRITE, TVW_ADEC_FIFO_OVERFLOW_CNTR, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_FIFO_UNDERFLOW_CNTR, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_I2S_WS_OFFSET, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_WRITE, TVW_ADEC_DECODER_DIAG, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_DECODER_DIAG_DATA, 0x2000, 0x00125c00 },
-	{ REG_WRITE, TVW_ADEC_DECODER_CONTROL, 0x2000, 0x00000320 },
-	{ REG_WRITE, TVW_ADEC_TEST_MUX_SELECT, 0x2000, 0x00000012 },
-	{ REG_WRITE, TVW_ADEC_NICAM_ERROR_THRESHOLD, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_NICAM_ERROR_CNTR, 0x2000, 0x000001fe },
-	{ REG_WRITE, TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_WRITE, TVW_ADEC_NICAM_COEFF_DQPSK_RESAMPL, 0x2000, 0x78200000 },
-	{ REG_WRITE, TVW_ADEC_NICAM_COEFF_DQPSK_LPF, 0x2000, 0x00000400 },
-	{ REG_WRITE, TVW_ADEC_DC_OFFSET, 0x2000, 0x0002dbfc },
-	{ REG_WRITE, TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00000033 },
-	{ REG_WRITE, 0x50f8, 0x2000, 0x00000087 },
-	{ REG_WRITE, 0x50fc, 0x2000, 0x00007003 },
-	{ REG_WRITE, 0x5100, 0x2000, 0x0001700d },
-	{ REG_WRITE, 0x5104, 0x2000, 0x00035024 },
-	{ REG_WRITE, 0x5108, 0x2000, 0x0006304a },
-	{ REG_WRITE, 0x510c, 0x2000, 0x0009c07e },
-	{ REG_WRITE, 0x5110, 0x2000, 0x000d60ba },
-	{ REG_WRITE, 0x5114, 0x2000, 0x001050f0 },
-	{ REG_WRITE, 0x5118, 0x2000, 0x0011b113 },
-	{ REG_WRITE, 0x511c, 0x2000, 0x05930a65 },
-	{ REG_WRITE, 0x5120, 0x2000, 0x0004fffc },
-	{ REG_WRITE, 0x5124, 0x2000, 0x0004fffc },
-	{ REG_WRITE, 0x5128, 0x2000, 0xfff02200 },
-	{ REG_WRITE, 0x512c, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x5130, 0x2000, 0x0000000a },
-	{ REG_WRITE, 0x5134, 0x2000, 0x00000005 },
-	{ REG_WRITE, 0x5138, 0x2000, 0x0000000f },
-	{ REG_WRITE, 0x513c, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x5140, 0x2000, 0x0000aaaa },
-	{ REG_WRITE, 0x5144, 0x2000, 0x0000cccc },
-	{ REG_WRITE, 0x5148, 0x2000, 0x0000f0f0 },
-	{ REG_WRITE, 0x514c, 0x2000, 0x0000ff00 },
-	{ REG_WRITE, 0x5154, 0x2000, 0x001fb3c5 },
-	{ REG_WRITE, 0x5158, 0x2000, 0x400a4e50 },
-	{ REG_WRITE, 0x515c, 0x2000, 0x0020f808 },
-	{ REG_WRITE, 0x5160, 0x2000, 0x002000a6 },
-	{ REG_WRITE, 0x5164, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5168, 0x2000, 0xff9dcc48 },
-	{ REG_WRITE, 0x516c, 0x2000, 0x004e6632 },
-	{ REG_WRITE, 0x5170, 0x2000, 0xffe0ffe0 },
-	{ REG_WRITE, 0x5174, 0x2000, 0x0000120f },
-	{ REG_WRITE, 0x5178, 0x2000, 0x01ffff8e },
-	{ REG_WRITE, 0x517c, 0x2000, 0x049f0d49 },
-	{ REG_WRITE, 0x5180, 0x2000, 0x0008049f },
-	{ REG_WRITE, 0x5184, 0x2000, 0x112c6616 },
-	{ REG_WRITE, 0x5188, 0x2000, 0x00a40923 },
-	{ REG_WRITE, 0x518c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5190, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5194, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5198, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x519c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x51a0, 0x2000, 0x01028c00 },
-	{ REG_WRITE, 0x51a4, 0x2000, 0x0202bb00 },
-	{ REG_WRITE, 0x51a8, 0x2000, 0x00350502 },
-	{ REG_WRITE, 0x51ac, 0x2000, 0x00322802 },
-	{ REG_WRITE, 0x51b0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x51b4, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000003f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00000033 },
-	{ REG_WRITE, TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00eab4c2 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00000014 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x0000003c },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000578 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x000005dc },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_READ,  TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_READ,  TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_READ,  TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_WRITE, TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_READ,  TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_READ,  TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_DEMOD2_CONTROL, 0x2000, 0x000000e8 },
-	{ REG_WRITE, TVW_ADEC_UPSAMPLER_GAIN, 0x2000, 0x00000e00 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000012 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_READ,  TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_WRITE, TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c0 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_WRITE, TVW_ADEC_MIXER2_DTO, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000006 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000009 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffed },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffae },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff84 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff58 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff2f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff13 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff24 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff67 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffdd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000008a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000016f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000288 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000003cd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000052e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000699 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000007f8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000934 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000a38 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000af0 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b50 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fff8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fff3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffec },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffdc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd4 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffce },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffcb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffcd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffed },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000087 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000000de },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000014a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000001c9 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000025a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000002f9 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000003a2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000450 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000004fd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000005a3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000063a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000006bb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000722 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000076a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000078e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000003f },
-	{ REG_WRITE, TVW_ADEC_DEMOD1_CONTROL, 0x2000, 0x00000900 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO3, 0x2000, 0x001e82d7 },
-	{ REG_WRITE, TVW_ADEC_PILOT_CHANNEL, 0x2000, 0x00000a2c },
-	{ REG_WRITE, TVW_ADEC_SAP_CHANNEL, 0x2000, 0x00000a09 },
-	{ REG_WRITE, TVW_ADEC_POWER_LPF1, 0x2000, 0x000000aa },
-	{ REG_WRITE, TVW_ADEC_POWER_LPF2, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_MEASURE, 0x2000, 0x00002a00 },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_THRD_HIGH, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_THRD_LOW, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_MEASURE, 0x2000, 0x000027e0 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_THRD_HIGH, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_THRD_LOW, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_MEASURE, 0x2000, 0x01ae1e60 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_MEASURE, 0x2000, 0x0006007d },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_WRITE, TVW_ADEC_DECIMATOR_BYPASS_CONTROL, 0x2000, 0x00080140 },
-	{ REG_WRITE, TVW_ADEC_FIR2_CONTROL, 0x2000, 0x00037f05 },
-	{ REG_WRITE, TVW_ADEC_DEMOD2_CONTROL, 0x2000, 0x000000e8 },
-	{ REG_WRITE, TVW_ADEC_UPSAMPLER_GAIN, 0x2000, 0x00000e00 },
-	{ REG_WRITE, TVW_ADEC_EXPANDER_WIDEBAND_GAIN, 0x2000, 0x00003ff0 },
-	{ REG_WRITE, TVW_ADEC_EXPANDER_SPECTRAL_GAIN, 0x2000, 0x00002c0a },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_WRITE, TVW_ADEC_AVC_LPF, 0x2000, 0x00000020 },
-	{ REG_WRITE, TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_NOTCH_ZERO, 0x2000, 0x00800010 },
-	{ REG_WRITE, TVW_ADEC_NOTCH_POLE, 0x2000, 0x007fc01a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_ACQUIRE_LPF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_TRACKING_LPF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_FIFO_K1, 0x2000, 0x00000576 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_FIFO_K2, 0x2000, 0x0000001d },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_THROTTLE_FACTOR, 0x2000, 0x00000008 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_THROTTLE_THRD, 0x2000, 0x00000008 },
-	{ REG_WRITE, TVW_ADEC_FIFO_STATUS, 0x2000, 0x00000007 },
-	{ REG_WRITE, TVW_ADEC_FIFO_OVERFLOW_CNTR, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_FIFO_UNDERFLOW_CNTR, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_I2S_WS_OFFSET, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_WRITE, TVW_ADEC_DECODER_DIAG, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_DECODER_DIAG_DATA, 0x2000, 0x00125c00 },
-	{ REG_WRITE, TVW_ADEC_DECODER_CONTROL, 0x2000, 0x00000320 },
-	{ REG_WRITE, TVW_ADEC_TEST_MUX_SELECT, 0x2000, 0x00000012 },
-	{ REG_WRITE, TVW_ADEC_NICAM_ERROR_THRESHOLD, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_NICAM_ERROR_CNTR, 0x2000, 0x000001fe },
-	{ REG_WRITE, TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_WRITE, TVW_ADEC_NICAM_COEFF_DQPSK_RESAMPL, 0x2000, 0x78200000 },
-	{ REG_WRITE, TVW_ADEC_NICAM_COEFF_DQPSK_LPF, 0x2000, 0x00000400 },
-	{ REG_WRITE, TVW_ADEC_DC_OFFSET, 0x2000, 0x0002dbfc },
-	{ REG_WRITE, TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00000033 },
-	{ REG_WRITE, 0x50f8, 0x2000, 0x00000087 },
-	{ REG_WRITE, 0x50fc, 0x2000, 0x00007003 },
-	{ REG_WRITE, 0x5100, 0x2000, 0x0001700d },
-	{ REG_WRITE, 0x5104, 0x2000, 0x00035024 },
-	{ REG_WRITE, 0x5108, 0x2000, 0x0006304a },
-	{ REG_WRITE, 0x510c, 0x2000, 0x0009c07e },
-	{ REG_WRITE, 0x5110, 0x2000, 0x000d60ba },
-	{ REG_WRITE, 0x5114, 0x2000, 0x001050f0 },
-	{ REG_WRITE, 0x5118, 0x2000, 0x0011b113 },
-	{ REG_WRITE, 0x511c, 0x2000, 0x05930a65 },
-	{ REG_WRITE, 0x5120, 0x2000, 0x0004fffc },
-	{ REG_WRITE, 0x5124, 0x2000, 0x0004fffc },
-	{ REG_WRITE, 0x5128, 0x2000, 0xfff02200 },
-	{ REG_WRITE, 0x512c, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x5130, 0x2000, 0x0000000a },
-	{ REG_WRITE, 0x5134, 0x2000, 0x00000005 },
-	{ REG_WRITE, 0x5138, 0x2000, 0x0000000f },
-	{ REG_WRITE, 0x513c, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x5140, 0x2000, 0x0000aaaa },
-	{ REG_WRITE, 0x5144, 0x2000, 0x0000cccc },
-	{ REG_WRITE, 0x5148, 0x2000, 0x0000f0f0 },
-	{ REG_WRITE, 0x514c, 0x2000, 0x0000ff00 },
-	{ REG_WRITE, 0x5154, 0x2000, 0x001fb3c5 },
-	{ REG_WRITE, 0x5158, 0x2000, 0x400a4e50 },
-	{ REG_WRITE, 0x515c, 0x2000, 0x0020f808 },
-	{ REG_WRITE, 0x5160, 0x2000, 0x002000a6 },
-	{ REG_WRITE, 0x5164, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5168, 0x2000, 0xff9dcc48 },
-	{ REG_WRITE, 0x516c, 0x2000, 0x004e6632 },
-	{ REG_WRITE, 0x5170, 0x2000, 0xffe0ffe0 },
-	{ REG_WRITE, 0x5174, 0x2000, 0x0000120f },
-	{ REG_WRITE, 0x5178, 0x2000, 0x01ffff8e },
-	{ REG_WRITE, 0x517c, 0x2000, 0x049f0d49 },
-	{ REG_WRITE, 0x5180, 0x2000, 0x0008049f },
-	{ REG_WRITE, 0x5184, 0x2000, 0x112c6616 },
-	{ REG_WRITE, 0x5188, 0x2000, 0x00a40923 },
-	{ REG_WRITE, 0x518c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5190, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5194, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5198, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x519c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x51a0, 0x2000, 0x01028c00 },
-	{ REG_WRITE, 0x51a4, 0x2000, 0x0202bb00 },
-	{ REG_WRITE, 0x51a8, 0x2000, 0x00350502 },
-	{ REG_WRITE, 0x51ac, 0x2000, 0x00322802 },
-	{ REG_WRITE, 0x51b0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x51b4, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000003f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00000033 },
-	{ REG_WRITE, TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00eab4c2 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00000014 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x0000003c },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000578 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x000005dc },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_READ,  TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_READ,  TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_READ,  TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_WRITE, TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_READ,  TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_DEMOD2_CONTROL, 0x2000, 0x000000e8 },
-	{ REG_WRITE, TVW_ADEC_UPSAMPLER_GAIN, 0x2000, 0x00000e00 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000012 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_READ,  TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_WRITE, TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ E0_MAGIC,       0,      0, 0x00010130 },
-	{ E0_MAGIC,       0,      0, 0x00000131 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000012 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000012 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000012 },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_MPLL_CONTROL, 0x2000, 0x0001a008 },
-	{ REG_READ,  TVW_FPLL_CONTROL, 0x2000, 0x87000024 },
-	{ REG_READ,  TVW_XPLL_CONTROL, 0x2000, 0x0018c600 },
-	{ REG_READ,  TVW_VPLL_CONTROL_0, 0x2000, 0x00c00000 },
-	{ REG_READ,  TVW_VPLL_CONTROL_1, 0x2000, 0x00000001 },
-	{ REG_READ,  TVW_APLL_CONTROL_0, 0x2000, 0x000000a8 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a108 },
-	{ REG_READ,  0x093c, 0x2000, 0x87000024 },
-	{ REG_READ,  0x0940, 0x2000, 0x004ad600 },
-	{ REG_READ,  0x0944, 0x2000, 0x33950000 },
-	{ REG_READ,  0x0948, 0x2000, 0x0002dc37 },
-	{ REG_READ,  0x094c, 0x2000, 0x000000a8 },
-	{ REG_READ,  TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a35 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x20070155 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x20070155 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_1, 0x2000, 0x20070155 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a35 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a35 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a35 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x20070155 },
-	{ REG_WRITE, TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x000f8520 },
-	{ REG_READ,  TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x000f8520 },
-	{ REG_WRITE, TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x020f853e },
-	{ REG_READ,  TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x020f853e },
-	{ REG_WRITE, TVW_TEST_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x20070155 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_1, 0x2000, 0x30070155 },
-	{ REG_WRITE, TVW_VIDEO_INPUT_1_CONTROL, 0x2000, 0x001f0000 },
-	{ REG_READ,  TVW_VIDEO_INPUT_1_CONTROL, 0x2000, 0x001f0000 },
-	{ REG_READ,  TVW_MPLL_CONTROL, 0x2000, 0x0001a008 },
-	{ REG_READ,  TVW_FPLL_CONTROL, 0x2000, 0x87000024 },
-	{ REG_READ,  TVW_XPLL_CONTROL, 0x2000, 0x0018c600 },
-	{ REG_READ,  TVW_VPLL_CONTROL_0, 0x2000, 0x00c00000 },
-	{ REG_READ,  TVW_VPLL_CONTROL_1, 0x2000, 0x00000001 },
-	{ REG_READ,  TVW_APLL_CONTROL_0, 0x2000, 0x000000a8 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a108 },
-	{ REG_READ,  0x093c, 0x2000, 0x87000024 },
-	{ REG_READ,  0x0940, 0x2000, 0x004ad600 },
-	{ REG_READ,  0x0944, 0x2000, 0x33950000 },
-	{ REG_READ,  0x0948, 0x2000, 0x0002dc37 },
-	{ REG_READ,  0x094c, 0x2000, 0x000000a8 },
-	{ REG_READ,  TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_WRITE, TVW_DVSO_PORT_CONTROL, 0x2000, 0x07ff0000 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a35 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x30070155 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x30070155 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_1, 0x2000, 0x30070155 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a35 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a37 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a37 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_1, 0x2000, 0x30070155 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a108 },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a11b },
-	{ REG_READ,  0x0940, 0x2000, 0x004ad600 },
-	{ REG_WRITE, 0x0940, 0x2000, 0x004ad600 },
-	{ REG_READ,  0x0944, 0x2000, 0x33950000 },
-	{ REG_WRITE, 0x0944, 0x2000, 0x33950000 },
-	{ REG_READ,  0x0948, 0x2000, 0x0002dc37 },
-	{ REG_WRITE, 0x0948, 0x2000, 0x0002dc37 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a11b },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a10b },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a108 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001f8a37 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x001fda37 },
-	{ E0_MAGIC,       0,      0, 0x00000151 },
-	{ REG_READ,  TVW_USC_CTL, 0x2000, 0x00701100 },
-	{ REG_WRITE, TVW_USC_CTL, 0x2000, 0x00701500 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000380 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001fda37 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x001fda35 },
-	{ REG_READ,  TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x000f8520 },
-	{ REG_WRITE, TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x000f8524 },
-	{ REG_READ,  TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x020f853e },
-	{ REG_WRITE, TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x020f853e },
-	{ REG_READ,  0x08a8, 0x2000, 0x0000f1a0 },
-	{ REG_WRITE, 0x08a8, 0x2000, 0x0000f1a0 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x001fda35 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x009fda37 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000380 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000380 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000380 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000380 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000380 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000380 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_CPU_HALF_BAND, 0x2000, 0x80008000 },
-	{ REG_WRITE, TVW_CPU_HALF_BAND, 0x2000, 0x80048004 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x009fda37 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x009fda37 },
-	{ E0_MAGIC,       0,      0, 0x00000150 },
-	{ REG_WRITE, 0x6860, 0x2000, 0x00004080 },
-	{ REG_WRITE, 0x6868, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_PEAK_WHITE, 0x2000, 0x00000580 },
-	{ REG_WRITE, 0x6864, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6868, 0x2000, 0x0000020c },
-	{ REG_WRITE, 0x686c, 0x2000, 0x00000410 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_REC_EDGE, 0x2000, 0x00000002 },
-	{ REG_WRITE, 0x6870, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6874, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6878, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_LOW_LL_WIN, 0x2000, 0x00001c1a },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_LOW_LOST, 0x2000, 0x00000516 },
-	{ REG_WRITE, 0x687c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6880, 0x2000, 0x10000000 },
-	{ REG_WRITE, 0x6884, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6888, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x688c, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SYNC_STRIP_TP_CTRL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_REC_LL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_SYNC_SEL, 0x2000, 0x00000002 },
-	{ REG_WRITE, 0x6890, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESAMP_COUT_SHFT, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6894, 0x2000, 0xfb000000 },
-	{ REG_WRITE, 0x689c, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESAMP_YOUT_SCALE, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_MEASURE_SYNCTIP_TH1, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68a0, 0x2000, 0xe8003000 },
-	{ REG_WRITE, TVW_MEASURE_SYNCTIP_BP_LP, 0x2000, 0x00005800 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_REC_LOST, 0x2000, 0x00008302 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_FOUND, 0x2000, 0x00008070 },
-	{ REG_WRITE, TVW_CB_PLL_ACC7, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_AGC_CONTROL_4_5, 0x2000, 0x84008000 },
-	{ REG_WRITE, TVW_AGC_CONTROL_6_7, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_AGC_ACC_MODE, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FRAME_SEN_CTRL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VBI_ADDR, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VBI_RD_DATA, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_LAST_TBC_DB7, 0x2000, 0x00c27f44 },
-	{ REG_WRITE, TVW_DEBUG_CONV_1_2, 0x2000, 0x003e0000 },
-	{ REG_WRITE, TVW_DEBUG_CONV_3_4, 0x2000, 0x00000007 },
-	{ REG_WRITE, TVW_VDEC_MEM_EN, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_LINE_COUNT4, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_GAIN_AGC, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_BURST_AMP, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_NEW_COMB_CTRL, 0x2000, 0x00008032 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_SYNC_LOW_TH, 0x2000, 0x87f507f8 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_SYNC_REC_TH, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_MEASURE_SYNCTIP_SYNC_REC_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_MEASURE_SYNCTIP_TH0, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_D2_COEFF_3_2, 0x2000, 0x0fe01000 },
-	{ REG_WRITE, TVW_D2_COEFF_5_4, 0x2000, 0x0ff00ff0 },
-	{ REG_WRITE, TVW_D2_COEFF_7_6, 0x2000, 0x0fe00000 },
-	{ REG_WRITE, 0x68c0, 0x2000, 0x3c000000 },
-	{ REG_WRITE, TVW_D2_COEFF_9_8, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_D2_COEFF_11_10, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_D2_COEFF_13_12, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68c4, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_LAST_TBC_DB5_6, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_CONTROL_1D1_2, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_CONTROL_1D3_4, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_CONTROL_TWO, 0x2000, 0x00000020 },
-	{ REG_WRITE, TVW_CBPLL_PROG, 0x2000, 0x10089180 },
-	{ REG_WRITE, TVW_CBCR_OFFSET, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_DEBUG_READ, 0x2000, 0x0e00bf00 },
-	{ REG_WRITE, TVW_SECAM_CTRL, 0x2000, 0x00508650 },
-	{ REG_WRITE, TVW_LAST_TBC_DB1_2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_D2_COEFF_15_14, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_CB_PLL_ACC5_6, 0x2000, 0x009320ac },
-	{ REG_WRITE, TVW_CB_PLL_ACC3_4, 0x2000, 0x00000280 },
-	{ REG_WRITE, TVW_CB_PLL_TEST_9_10, 0x2000, 0x000001a3 },
-	{ REG_WRITE, TVW_CB_PLL_ACC1_2, 0x2000, 0x02800080 },
-	{ REG_WRITE, TVW_CB_PLL_TEST_5_6, 0x2000, 0x00100010 },
-	{ REG_WRITE, TVW_CB_PLL_TEST_3_4, 0x2000, 0xfc3ffc3f },
-	{ REG_WRITE, TVW_RISING_PROG1_2, 0x2000, 0x87000674 },
-	{ REG_WRITE, TVW_TBC_BP_ST3, 0x2000, 0x00000007 },
-	{ REG_WRITE, TVW_RISING_PROG3, 0x2000, 0x01010406 },
-	{ REG_WRITE, TVW_TBC_BP_ST1_2, 0x2000, 0x80c4782e },
-	{ REG_WRITE, TVW_COMB_3D_ADJUST, 0x2000, 0x000020ac },
-	{ REG_WRITE, TVW_CB_PLL_TEST_7_8, 0x2000, 0x00100010 },
-	{ REG_WRITE, TVW_CB_PLL_TEST_1_2, 0x2000, 0x86d016a8 },
-	{ REG_WRITE, TVW_BURST_RISING1_2, 0x2000, 0x00000020 },
-	{ REG_WRITE, TVW_YELLOW_DB1_2, 0x2000, 0x04020406 },
-	{ REG_WRITE, TVW_VBI_END_FIELD, 0x2000, 0x80c47828 },
-	{ REG_WRITE, TVW_CATV_DB1_2, 0x2000, 0x285b281e },
-	{ REG_WRITE, TVW_IIR_BW, 0x2000, 0xc1850c01 },
-	{ REG_WRITE, TVW_PAUSE_FIX1_2, 0x2000, 0x02d709d3 },
-	{ REG_WRITE, TVW_PAUSE_FIX3_4, 0x2000, 0x00007733 },
-	{ REG_WRITE, TVW_AGC_CONTROL_2_3, 0x2000, 0x00000006 },
-	{ REG_WRITE, TVW_CATV_FIELD, 0x2000, 0x2030800c },
-	{ REG_WRITE, 0x68d0, 0x2000, 0x20000001 },
-	{ REG_WRITE, TVW_FIELD_RST1, 0x2000, 0x19e72035 },
-	{ REG_WRITE, TVW_FV_WIDE1_2, 0x2000, 0x20002000 },
-	{ REG_WRITE, 0x68d4, 0x2000, 0x18202000 },
-	{ REG_WRITE, TVW_FV_WIDE3_5, 0x2000, 0xffff7800 },
-	{ REG_WRITE, TVW_RESAMP_POWER_THRESHOLD_HIGH, 0x2000, 0x01000120 },
-	{ REG_WRITE, TVW_PAUSE_FIX5_6, 0x2000, 0x02240253 },
-	{ REG_WRITE, TVW_NM_PROG1_2, 0x2000, 0x0a0a1010 },
-	{ REG_WRITE, TVW_NM_PROG3_4, 0x2000, 0x04040707 },
-	{ REG_WRITE, TVW_AFE_AGC_CONTROL, 0x2000, 0x0000b000 },
-	{ REG_WRITE, TVW_SYNC_DETECT_DB1_2, 0x2000, 0x00000022 },
-	{ REG_WRITE, TVW_RESAMP_POWER_THRESHOLD_LOW, 0x2000, 0x0000800b },
-	{ REG_WRITE, TVW_RESAMP_STATUS, 0x2000, 0x80810001 },
-	{ REG_WRITE, TVW_PEAK_WHITE_THRESH, 0x2000, 0x00006100 },
-	{ REG_WRITE, TVW_PEAK_WHITE_HWIN, 0x2000, 0x03000006 },
-	{ REG_WRITE, TVW_PEAK_WHITE_VWIN, 0x2000, 0x08000000 },
-	{ REG_WRITE, TVW_PEAK_WHITE_AVERAGE, 0x2000, 0x00000800 },
-	{ REG_WRITE, TVW_DEBUG_CONV_5, 0x2000, 0x00000011 },
-	{ REG_WRITE, 0x68d8, 0x2000, 0x00005022 },
-	{ REG_WRITE, TVW_OFFSET_CALC_STATUS, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_OFFSET_CALC_LOG, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_OFFSET_CALC_COUNT, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_VIDEO_TIMING, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68c8, 0x2000, 0x00004200 },
-	{ REG_WRITE, TVW_D2_COEFF_17_16, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_D2_COEFF_19_18, 0x2000, 0x00740000 },
-	{ REG_WRITE, TVW_DEBUG_MUX_SEL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FINAL_DB1_2, 0x2000, 0x00000074 },
-	{ REG_WRITE, 0x68cc, 0x2000, 0x406d3080 },
-	{ REG_WRITE, TVW_FINAL_DB3_4, 0x2000, 0xfe01008e },
-	{ REG_WRITE, TVW_FINAL_DB5_6, 0x2000, 0x50f030ff },
-	{ REG_WRITE, TVW_FINAL_DB7_8, 0x2000, 0x00800000 },
-	{ REG_WRITE, TVW_FINAL_DB9_10, 0x2000, 0x00200080 },
-	{ REG_WRITE, TVW_FINAL_DB11_12, 0x2000, 0x00328400 },
-	{ REG_WRITE, TVW_LINE_COUNT1, 0x2000, 0x000b1770 },
-	{ REG_WRITE, TVW_FINAL_DB13_14, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FINAL_DB15_16, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FINAL_DB17_18, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESAMP_YOUT_SHFT, 0x2000, 0x000002cc },
-	{ REG_WRITE, TVW_FINAL_DB19_20, 0x2000, 0x0b0067be },
-	{ REG_WRITE, TVW_FINAL_DB21_22, 0x2000, 0x40003fe0 },
-	{ REG_WRITE, TVW_FINAL_DB23_24, 0x2000, 0x00700c32 },
-	{ REG_WRITE, TVW_LINE_COUNT2, 0x2000, 0x00c03020 },
-	{ REG_WRITE, TVW_LINE_COUNT3, 0x2000, 0x0000003c },
-	{ REG_WRITE, TVW_FINAL_DB25_26, 0x2000, 0x40bf3100 },
-	{ REG_WRITE, TVW_FINAL_DB27, 0x2000, 0x18300140 },
-	{ REG_WRITE, TVW_ACC_CONTROL, 0x2000, 0x00000660 },
-	{ REG_WRITE, TVW_ACC_SPEED, 0x2000, 0x0000e000 },
-	{ REG_WRITE, TVW_ACC_TH_ADJ, 0x2000, 0x22220608 },
-	{ REG_WRITE, TVW_ACC_BURST_POS1_2, 0x2000, 0x00008e8e },
-	{ REG_WRITE, TVW_ACC_BURST_POS3_4, 0x2000, 0x00000002 },
-	{ REG_WRITE, TVW_BURST_WIDTH1_2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_BURST_WIDTH3_4, 0x2000, 0x0000b030 },
-	{ REG_WRITE, TVW_BURST_WIDTH5_6, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_BURST_WIDTH7, 0x2000, 0x091d0020 },
-	{ REG_WRITE, TVW_SYNC_POS1_2, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_SYNC_POS3_4, 0x2000, 0x20000106 },
-	{ REG_WRITE, TVW_SYNC_POS5_6, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SYNC_POS7_8, 0x2000, 0x5000030f },
-	{ REG_WRITE, TVW_FV_WIDE5, 0x2000, 0x04000100 },
-	{ REG_WRITE, TVW_SNAP_DB1_2, 0x2000, 0x01800100 },
-	{ REG_WRITE, TVW_SNAP_DB3, 0x2000, 0xff9f0100 },
-	{ REG_WRITE, TVW_TEAR_DB1, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SYNC_POS9_10, 0x2000, 0x00037002 },
-	{ REG_WRITE, TVW_CCR_ADJUST, 0x2000, 0x2f0e2202 },
-	{ REG_WRITE, TVW_NP_CONTROL, 0x2000, 0x00003def },
-	{ REG_WRITE, TVW_Q_CONTROL, 0x2000, 0x00204f00 },
-	{ REG_WRITE, 0x6898, 0x2000, 0x3820000d },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_1_2, 0x2000, 0x00600040 },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_3_4, 0x2000, 0x40800e40 },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_5_6, 0x2000, 0x01000ecc },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_7_8, 0x2000, 0x08000600 },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_9, 0x2000, 0x10000a00 },
-	{ REG_WRITE, TVW_BACK_PORCH, 0x2000, 0x30002000 },
-	{ REG_WRITE, TVW_LAST_TBC_DB3_4, 0x2000, 0x00000011 },
-	{ REG_WRITE, TVW_NEG_BP_CTR1_2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_NEG_BP_CTR3_4, 0x2000, 0xd7970580 },
-	{ REG_WRITE, TVW_NEG_BP_CTR4_5, 0x2000, 0x00005717 },
-	{ REG_WRITE, TVW_PAL_MOTION_CTRL1_2, 0x2000, 0x01cc3f3c },
-	{ REG_WRITE, TVW_MOTION_3D, 0x2000, 0x000010f0 },
-	{ REG_WRITE, TVW_SYNC_LOW_DB1_2, 0x2000, 0x2eec80ff },
-	{ REG_WRITE, TVW_SYNC_LOW_DB3_4, 0x2000, 0x00004942 },
-	{ REG_WRITE, TVW_SYNC_LOW_DB5, 0x2000, 0x00000294 },
-	{ REG_WRITE, TVW_SYNC_POS11_12, 0x2000, 0x023a8237 },
-	{ REG_WRITE, TVW_VCR_DB1_2, 0x2000, 0x0000aa89 },
-	{ REG_WRITE, TVW_VLOCK_ACQUIRE_CTRL, 0x2000, 0x00002098 },
-	{ REG_WRITE, TVW_VLOCK_ACQUIRE_FIELD_WIN, 0x2000, 0x83001000 },
-	{ REG_WRITE, TVW_VLOCK_ACQUIRE_PAL_FIELD, 0x2000, 0x44444444 },
-	{ REG_WRITE, TVW_GENLOCK_FLAG, 0x2000, 0xa8644444 },
-	{ REG_WRITE, TVW_GENLOCK_VCR, 0x2000, 0x44444444 },
-	{ REG_WRITE, TVW_GENLOCK_REC_SELECT, 0x2000, 0x4c0000b8 },
-	{ REG_WRITE, 0x68e8, 0x2000, 0xf0006200 },
-	{ REG_WRITE, TVW_GENLOCK_TRICK_MODE_1_2, 0x2000, 0x0000070c },
-	{ REG_WRITE, TVW_RESAMP_CONTROL, 0x2000, 0x00ff3040 },
-	{ REG_WRITE, TVW_GENLOCK_TRICK_MODE_3_4, 0x2000, 0x80c00c08 },
-	{ REG_WRITE, TVW_GENLOCK_TRICK_MODE_5, 0x2000, 0x30402000 },
-	{ REG_WRITE, TVW_GENLOCK_VALID_3D, 0x2000, 0x4030a010 },
-	{ REG_WRITE, TVW_VLOCK_ACQUIRE_FIELD_LOCK, 0x2000, 0x40302010 },
-	{ REG_WRITE, TVW_GENLOCK_BURST_GAIN, 0x2000, 0x00001100 },
-	{ REG_WRITE, TVW_AGC_FAST_20P, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_AGC_FAST_HIGH_TH, 0x2000, 0x05000002 },
-	{ REG_WRITE, TVW_OFFSET_CALC_SCH_VALUE, 0x2000, 0x00000e0e },
-	{ REG_WRITE, TVW_AGC_FAST_LOW_TH, 0x2000, 0x0000000b },
-	{ REG_WRITE, TVW_AGC_FAST_PEAK_BLACK_TH, 0x2000, 0x000004fc },
-	{ REG_WRITE, TVW_IF_COEF1, 0x2000, 0x02020e00 },
-	{ REG_WRITE, TVW_VDEC_REC_HLOCK_FLAG, 0x2000, 0x39657666 },
-	{ REG_WRITE, TVW_IF_COEF2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_IF_COEF3, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_AFE_DEBUG_AGC, 0x2000, 0x00220000 },
-	{ REG_WRITE, TVW_VDEC_STATUS, 0x2000, 0xffb9ffd6 },
-	{ REG_WRITE, TVW_VDEC_SYNC_LEVEL, 0x2000, 0xff6e00f0 },
-	{ REG_WRITE, TVW_VDEC_CLAMP_OUT, 0x2000, 0x037afe6e },
-	{ REG_WRITE, TVW_VDEC_LOW_HLOCK_FLAG, 0x2000, 0xf88bfef2 },
-	{ REG_WRITE, TVW_VDEC_LOW_LINE_MEAS, 0x2000, 0x296211df },
-	{ REG_WRITE, 0x693c, 0x2000, 0x000002bc },
-	{ REG_WRITE, TVW_AGC_FAST_SPEED_0_1, 0x2000, 0x0a030008 },
-	{ REG_WRITE, TVW_AGC_FAST_SPEED_2_3, 0x2000, 0x00200010 },
-	{ REG_WRITE, TVW_VDEC_REC_LINE_MEAS, 0x2000, 0x00000003 },
-	{ REG_WRITE, 0x6940, 0x2000, 0x00000020 },
-	{ REG_WRITE, 0x6944, 0x2000, 0x0000000f },
-	{ REG_WRITE, 0x6948, 0x2000, 0x27727777 },
-	{ REG_WRITE, 0x694c, 0x2000, 0x00004060 },
-	{ REG_WRITE, 0x6950, 0x2000, 0x00005090 },
-	{ REG_WRITE, 0x6954, 0x2000, 0x000003cc },
-	{ REG_WRITE, 0x6958, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_DIAG, 0x2000, 0x00020000 },
-	{ REG_WRITE, 0x6c7c, 0x2000, 0x00000590 },
-	{ REG_WRITE, 0x6908, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x691c, 0x2000, 0x00000005 },
-	{ REG_WRITE, TVW_VDEC_VIDEO_FLAGS, 0x2000, 0x0410fdcf },
-	{ REG_WRITE, TVW_CB_PLL_ACCUM, 0x2000, 0x14401c0a },
-	{ REG_WRITE, TVW_CB_PLL_FLAG, 0x2000, 0x60404180 },
-	{ REG_WRITE, TVW_CP_CTRL, 0x2000, 0x8c28f098 },
-	{ REG_WRITE, TVW_MEASURED_NOISE, 0x2000, 0xfc005420 },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG1, 0x2000, 0x00137fff },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG2, 0x2000, 0xffec0000 },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG3, 0x2000, 0x1010f82f },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG4, 0x2000, 0x430a4810 },
-	{ REG_WRITE, TVW_BP_LEVEL, 0x2000, 0xf08c194f },
-	{ REG_WRITE, TVW_NEW_AGC_GAIN, 0x2000, 0x06060200 },
-	{ REG_WRITE, TVW_ACC_GAIN, 0x2000, 0x06080606 },
-	{ REG_WRITE, TVW_DEMOD_IIR, 0x2000, 0x04380808 },
-	{ REG_WRITE, TVW_ABS_SQ_BURST_IIR, 0x2000, 0x01200120 },
-	{ REG_WRITE, TVW_FIELD_V_POS, 0x2000, 0x03100000 },
-	{ REG_WRITE, TVW_RESAMP0_DEBUG, 0x2000, 0x01200100 },
-	{ REG_WRITE, TVW_CLAMP_DEBUG, 0x2000, 0x000204ff },
-	{ REG_WRITE, TVW_VFLIP_PROG, 0x2000, 0x20f20560 },
-	{ REG_WRITE, TVW_PAL_VFLIP_TH1_2, 0x2000, 0x304a0a20 },
-	{ REG_WRITE, TVW_PAL_VFLIP_TH3_4, 0x2000, 0x1e40f20a },
-	{ REG_WRITE, TVW_VFLIP_MAX1_2, 0x2000, 0x0a404400 },
-	{ REG_WRITE, TVW_VFLIP_MAX3_4, 0x2000, 0x2832423c },
-	{ REG_WRITE, TVW_VFLIP_MAX5_6, 0x2000, 0xff404100 },
-	{ REG_WRITE, TVW_VFLIP_CK_SNAP, 0x2000, 0x050e4000 },
-	{ REG_WRITE, TVW_STANDARD_CONTROL1_2, 0x2000, 0x7010020e },
-	{ REG_WRITE, TVW_AUTO_SM1, 0x2000, 0x0a085000 },
-	{ REG_WRITE, TVW_AUTO_VFLIP1_2, 0x2000, 0x64648440 },
-	{ REG_WRITE, TVW_AUTO_VFLIP3_4, 0x2000, 0x8b000240 },
-	{ REG_WRITE, TVW_AUTO_VFLIP5_6, 0x2000, 0x04b41eb4 },
-	{ REG_WRITE, TVW_SCART_CTRL, 0x2000, 0x58ff2000 },
-	{ REG_WRITE, TVW_AUTO_READ1, 0x2000, 0x20640650 },
-	{ REG_WRITE, TVW_VFLIP1_2_ON, 0x2000, 0x00392064 },
-	{ REG_WRITE, TVW_CBPLL_ABS, 0x2000, 0x019a01ea },
-	{ REG_WRITE, TVW_LPF_LL, 0x2000, 0x004005fa },
-	{ REG_WRITE, TVW_FPLL_DBG_PORT, 0x2000, 0x817a400a },
-	{ REG_WRITE, TVW_NOISE_MEASURE_CONTROL, 0x2000, 0x06406040 },
-	{ REG_WRITE, TVW_NOISE_MEASURE_VCOUNT_WINDOW, 0x2000, 0x009b0000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR6, 0x2000, 0x00000f68 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR7, 0x2000, 0x28000000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR8, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR9, 0x2000, 0xfffff000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR10, 0x2000, 0x11302020 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR11, 0x2000, 0x000a0a0a },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP16, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_CONTROL3, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_CONTROL5, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x66d8, 0x2000, 0x0f802f00 },
-	{ REG_WRITE, 0x66dc, 0x2000, 0x4a001f80 },
-	{ REG_WRITE, TVW_TBC_SM_CTRL, 0x2000, 0x00000a0a },
-	{ REG_WRITE, TVW_TBC_SM_VBI_WIND_START, 0x2000, 0x14001400 },
-	{ REG_WRITE, TVW_MEMORY_MARGIN_CTL0, 0x2000, 0x7c0081be },
-	{ REG_WRITE, TVW_MEMORY_MARGIN_CTL1, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FSC_PROG1_2, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x650c, 0x2000, 0x0e1c0000 },
-	{ REG_WRITE, TVW_FSC_PROG3_4, 0x2000, 0x3b80ffff },
-	{ REG_WRITE, TVW_VSYNC_SLICE1_4, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ABS_SQ_BURST_IIR_N_EN, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ABS_SQ_BURST_IIR_P_EP, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VDEC_FIFO_CTL, 0x2000, 0x000f0000 },
-	{ REG_WRITE, TVW_VDEC_INTERRUPT_ENABLE, 0x2000, 0xffff2440 },
-	{ REG_WRITE, TVW_VDEC_INTERRUPT_CLEAR, 0x2000, 0x0000ff00 },
-	{ REG_WRITE, TVW_VDEC_LOCK_INTR_CTRL, 0x2000, 0xffffffff },
-	{ REG_WRITE, TVW_VDEC_MV_INTR_CTRL, 0x2000, 0x00ff0000 },
-	{ REG_WRITE, TVW_VDEC_TRICK_MODE_INTR_CTRL, 0x2000, 0x20802020 },
-	{ REG_WRITE, TVW_VDEC_STD_INTR_CTRL, 0x2000, 0x40c64040 },
-	{ REG_WRITE, TVW_VDEC_NOISE_MEASURE_HIGH_INTR_CTRL, 0x2000, 0x0000c280 },
-	{ REG_WRITE, TVW_VDEC_NOISE_MEASURE_LOW_INTR_CTRL, 0x2000, 0x10101410 },
-	{ REG_WRITE, TVW_VDEC_NOISE_INTR_TRIGGER, 0x2000, 0x8f781058 },
-	{ REG_WRITE, TVW_VDEC_VSYNC_INTR_CTRL, 0x2000, 0xf532146f },
-	{ REG_WRITE, TVW_VDEC_FIELD_ID_INTR_CTRL, 0x2000, 0x1e1e241e },
-	{ REG_WRITE, TVW_VDEC_DEBUG1_INTR_CTRL, 0x2000, 0x8e8108b7 },
-	{ REG_WRITE, TVW_VDEC_MD_CTRL, 0x2000, 0xf8319999 },
-	{ REG_WRITE, TVW_MOTION_1D_2D, 0x2000, 0xd562b06c },
-	{ REG_WRITE, TVW_TRICK_AUTO_STANDARD1_2, 0x2000, 0xdc826001 },
-	{ REG_WRITE, TVW_VSYNC_SLICE3, 0x2000, 0x28124f3d },
-	{ REG_WRITE, TVW_SAME_CH_3D1_2, 0x2000, 0x0998cf2b },
-	{ REG_WRITE, 0x6568, 0x2000, 0xf1f54b1b },
-	{ REG_WRITE, 0x656c, 0x2000, 0x3c32ef3d },
-	{ REG_WRITE, TVW_SECAM_SEP_DB0, 0x2000, 0xa9983320 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB1, 0x2000, 0x34d9433e },
-	{ REG_WRITE, TVW_SECAM_SEP_DB2, 0x2000, 0x1fa39825 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB3, 0x2000, 0x4a9e522b },
-	{ REG_WRITE, TVW_SECAM_SEP_DB4, 0x2000, 0x5cfb4e7b },
-	{ REG_WRITE, TVW_SECAM_SEP_DB5, 0x2000, 0x2452d0c3 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB6, 0x2000, 0xea9efd2b },
-	{ REG_WRITE, TVW_SECAM_SEP_DB7, 0x2000, 0xd8f051db },
-	{ REG_WRITE, TVW_SECAM_SEP_DB8, 0x2000, 0x8020bf3d },
-	{ REG_WRITE, TVW_SECAM_SEP_DB9, 0x2000, 0x14188025 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB10, 0x2000, 0x0d601c1f },
-	{ REG_WRITE, TVW_SECAM_SEP_DB11, 0x2000, 0x20000240 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB12, 0x2000, 0x88888888 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB13, 0x2000, 0x88887888 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB14, 0x2000, 0x88886788 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB15, 0x2000, 0x56780004 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB16, 0x2000, 0x45680023 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR0, 0x2000, 0x23460002 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR1, 0x2000, 0x12350001 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR3, 0x2000, 0x44030a05 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR12, 0x2000, 0x70002050 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR13, 0x2000, 0x08608300 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR14, 0x2000, 0x28144000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR15, 0x2000, 0x28142800 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR16, 0x2000, 0x14288000 },
-	{ REG_WRITE, 0x65f8, 0x2000, 0x70f0001f },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL1, 0x2000, 0x0a283e40 },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL2, 0x2000, 0xbe100b38 },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL3, 0x2000, 0x04ff1010 },
-	{ REG_WRITE, TVW_SECAM_CTRL0, 0x2000, 0x08467f57 },
-	{ REG_WRITE, TVW_SECAM_CTRL1, 0x2000, 0x0a603032 },
-	{ REG_WRITE, TVW_SECAM_CTRL2, 0x2000, 0x10080b20 },
-	{ REG_WRITE, TVW_SECAM_BURST2, 0x2000, 0x000027fd },
-	{ REG_WRITE, TVW_SECAM_CLAMP_CTRL3, 0x2000, 0x00000008 },
-	{ REG_WRITE, TVW_SECAM_DEEMPHASIS_COEFF, 0x2000, 0x000007f0 },
-	{ REG_WRITE, TVW_SECAM_SEPARATION_CNTRL, 0x2000, 0x0000001d },
-	{ REG_WRITE, TVW_SECAM_EMPHASIS_BOOST, 0x2000, 0x000007cd },
-	{ REG_WRITE, TVW_SECAM_DIAG_DATA, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_SECAM_CLAMP_CTRL4, 0x2000, 0x020006bd },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL4, 0x2000, 0x07d80003 },
-	{ REG_WRITE, TVW_SECAM_SEPARATION_CTRL1, 0x2000, 0x001107f3 },
-	{ REG_WRITE, TVW_SECAM_CONTROL, 0x2000, 0x0009001e },
-	{ REG_WRITE, TVW_SECAM_CLOCHE_COEFB0, 0x2000, 0x07da07dc },
-	{ REG_WRITE, TVW_SECAM_CLOCHE_COEFB1, 0x2000, 0x00530018 },
-	{ REG_WRITE, TVW_SECAM_CLOCHE_COEFA1, 0x2000, 0x07920032 },
-	{ REG_WRITE, TVW_SECAM_NOISE_SCALING_THRESH_LOW, 0x2000, 0x028606d2 },
-	{ REG_WRITE, TVW_SECAM_NOISE_SCALING_SLOPE, 0x2000, 0xc8c802c8 },
-	{ REG_WRITE, TVW_SECAM_NOISE_MEASURE_CONTROL, 0x2000, 0x000014a7 },
-	{ REG_WRITE, TVW_SECAM_NOISE_MEASURE_VCOUNT_WINDOW, 0x2000, 0x80001460 },
-	{ REG_WRITE, TVW_SECAM_NOISE_MEASUREMENT, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_CARRIER_AMP_CTRL, 0x2000, 0x00010000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP1, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP3, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP4, 0x2000, 0x00080000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP5, 0x2000, 0x112a0028 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP6, 0x2000, 0x00440e58 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP7, 0x2000, 0x80be2204 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP8, 0x2000, 0x04042cb4 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP9, 0x2000, 0x00000ac3 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP10, 0x2000, 0x61500000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP11, 0x2000, 0x64304180 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP12, 0x2000, 0xa028a028 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP13, 0x2000, 0x001402ff },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP14, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR4, 0x2000, 0x8f7f12f0 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR5, 0x2000, 0x00b13b34 },
-	{ REG_WRITE, 0x6b74, 0x2000, 0x00000043 },
-	{ REG_WRITE, 0x6b78, 0x2000, 0x00036fc8 },
-	{ REG_WRITE, 0x6b7c, 0x2000, 0x00041eaf },
-	{ REG_WRITE, 0x6b80, 0x2000, 0x0006df91 },
-	{ REG_WRITE, 0x6b88, 0x2000, 0x00083d5f },
-	{ REG_WRITE, 0x6b8c, 0x2000, 0x0000800f },
-	{ REG_WRITE, 0x6b54, 0x2000, 0x00000110 },
-	{ REG_WRITE, 0x6b58, 0x2000, 0x00040400 },
-	{ REG_WRITE, 0x6940, 0x2000, 0x00000020 },
-	{ REG_WRITE, 0x6908, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6974, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6978, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_QM_CONTROL, 0x2000, 0x003f0003 },
-	{ REG_WRITE, 0x6abc, 0x2000, 0x0c000202 },
-	{ REG_WRITE, TVW_TBC_SM_VBI_V_START, 0x2000, 0xf0080c00 },
-	{ REG_WRITE, TVW_TBC_SM_VBI_V_END, 0x2000, 0x070b0008 },
-	{ REG_WRITE, TVW_PWM3_CLAMP_GAIN, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VPLL_DBG_PORT, 0x2000, 0x00000001 },
-	{ REG_WRITE, 0x697c, 0x2000, 0x00000001 },
-	{ REG_WRITE, 0x6ac4, 0x2000, 0x00000001 },
-	{ REG_WRITE, 0x6ac0, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_CBCR_DELAY, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_OFFSET_SKEW, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_PAUSE, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_PLL_OVER_GAIN, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_LINE_BUF_FREQ_DIF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_LINE_BUF_READ_DISTANCE, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68a4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ae8, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ad0, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6ad4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ad8, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6adc, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ae0, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6ae4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6aec, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6af0, 0x2000, 0x07f80000 },
-	{ REG_WRITE, 0x6af4, 0x2000, 0x00001000 },
-	{ REG_WRITE, 0x6af8, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6afc, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6b00, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6b04, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a10, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a14, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a18, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a1c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a20, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a58, 0x2000, 0x00000004 },
-	{ REG_WRITE, 0x6a24, 0x2000, 0x0000001c },
-	{ REG_WRITE, 0x6a28, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a2c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a30, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a40, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a44, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a48, 0x2000, 0x00000003 },
-	{ REG_WRITE, 0x6b08, 0x2000, 0x00008000 },
-	{ REG_WRITE, 0x6a4c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a50, 0x2000, 0x07380060 },
-	{ REG_WRITE, 0x6a54, 0x2000, 0x0000063c },
-	{ REG_WRITE, 0x6a5c, 0x2000, 0x000000c0 },
-	{ REG_WRITE, 0x6a60, 0x2000, 0x00000200 },
-	{ REG_WRITE, 0x6a64, 0x2000, 0xc1220000 },
-	{ REG_WRITE, 0x6a68, 0x2000, 0x93281c00 },
-	{ REG_WRITE, 0x6a6c, 0x2000, 0x608f0000 },
-	{ REG_WRITE, 0x6a70, 0x2000, 0x00000a00 },
-	{ REG_WRITE, 0x6a74, 0x2000, 0xeca86420 },
-	{ REG_WRITE, 0x6a78, 0x2000, 0x00001040 },
-	{ REG_WRITE, 0x6a7c, 0x2000, 0x01f40023 },
-	{ REG_WRITE, 0x6a80, 0x2000, 0x00000032 },
-	{ REG_WRITE, 0x6a84, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a88, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68f0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a9c, 0x2000, 0x00200000 },
-	{ REG_WRITE, 0x6aa0, 0x2000, 0x38080010 },
-	{ REG_WRITE, 0x6aa4, 0x2000, 0x0038022f },
-	{ REG_WRITE, 0x6aa8, 0x2000, 0x00003038 },
-	{ REG_WRITE, 0x6ab0, 0x2000, 0x00001020 },
-	{ REG_WRITE, 0x6ab4, 0x2000, 0x00800040 },
-	{ REG_WRITE, 0x6ab8, 0x2000, 0x010000c0 },
-	{ REG_WRITE, TVW_CKILL_5_6, 0x2000, 0x00000080 },
-	{ REG_WRITE, 0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68a8, 0x2000, 0x00002000 },
-	{ REG_WRITE, 0x696c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6938, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6b50, 0x2000, 0x01000700 },
-	{ REG_WRITE, 0x6b20, 0x2000, 0x000000a6 },
-	{ REG_WRITE, 0x6b28, 0x2000, 0x000000e4 },
-	{ REG_WRITE, 0x6b24, 0x2000, 0x000000e4 },
-	{ REG_READ,  0x6904, 0x2000, 0xe40f000f },
-	{ REG_WRITE, 0x6904, 0x2000, 0xe400100f },
-	{ REG_READ,  TVW_CPU_BURST_PHASE, 0x2000, 0x000306aa },
-	{ REG_WRITE, TVW_CPU_BURST_PHASE, 0x2000, 0x000306aa },
-	{ REG_READ,  TVW_CPU_PAL_MOD, 0x2000, 0x000206aa },
-	{ REG_WRITE, TVW_CPU_PAL_MOD, 0x2000, 0x000206aa },
-	{ REG_WRITE, TVW_CKILL_5_6, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_CKILL_DB3_4, 0x2000, 0x00030003 },
-	{ REG_WRITE, TVW_CKILL_DB3_4, 0x2000, 0x00020003 },
-	{ REG_READ,  TVW_W9_10, 0x2000, 0x00100010 },
-	{ REG_WRITE, TVW_W9_10, 0x2000, 0x01000100 },
-	{ REG_READ,  TVW_W11, 0x2000, 0x00010001 },
-	{ REG_WRITE, TVW_W11, 0x2000, 0x01000100 },
-	{ REG_WRITE, TVW_YC_CONTROL, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_YC_DB1, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_NM_DB1_2, 0x2000, 0x00005ceb },
-	{ REG_WRITE, TVW_CKILL_DB1_2, 0x2000, 0x001c001c },
-	{ REG_WRITE, 0x6c1c, 0x2000, 0x0002a25a },
-	{ REG_WRITE, 0x6cac, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cb0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cb4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cb8, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cbc, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cc0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cc4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cc8, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ccc, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cd0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cd4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6cd8, 0x2000, 0x00001001 },
-	{ REG_WRITE, 0x6cdc, 0x2000, 0x00009009 },
-	{ REG_WRITE, 0x6ce0, 0x2000, 0x00f3cf3c },
-	{ REG_WRITE, 0x6ce4, 0x2000, 0x0013b13b },
-	{ REG_WRITE, 0x6ce8, 0x2000, 0x00161161 },
-	{ REG_WRITE, 0x6cec, 0x2000, 0x0043c43c },
-	{ REG_WRITE, 0x6c7c, 0x2000, 0x00001d90 },
-	{ REG_WRITE, 0x6cf0, 0x2000, 0x03008740 },
-	{ REG_WRITE, 0x6c5c, 0x2000, 0x0f1a8080 },
-	{ REG_WRITE, 0x6c78, 0x2000, 0x20202cc0 },
-	{ REG_READ,  0x6ca0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ca0, 0x2000, 0x00000003 },
-	{ REG_WRITE, 0x6c8c, 0x2000, 0xff0000ff },
-	{ REG_WRITE, 0x6c90, 0x2000, 0xffffffff },
-	{ REG_WRITE, 0x6cf4, 0x2000, 0x676780d0 },
-	{ REG_READ,  TVW_USC_CTL, 0x2000, 0x00701500 },
-	{ REG_WRITE, TVW_USC_CTL, 0x2000, 0x00701100 },
-	{ REG_READ,  0x0938, 0x2000, 0x0001a108 },
-	{ REG_WRITE, 0x0938, 0x2000, 0x0001a108 },
-	{ REG_WRITE, TVW_AVSYNC_STC_WINDOW, 0x2000, 0x000cdfe5 },
-	{ REG_WRITE, TVW_AVSYNC_SCLK_WINDOW, 0x2000, 0x000176ff },
-	{ REG_WRITE, TVW_AVSYNC_AUDIO_GAIN, 0x2000, 0x28800880 },
-	{ REG_READ,  0x6860, 0x2000, 0x00004080 },
-	{ REG_WRITE, 0x6860, 0x2000, 0x00004080 },
-	{ REG_READ,  0x6940, 0x2000, 0x00000020 },
-	{ REG_WRITE, 0x6940, 0x2000, 0x00000020 },
-	{ REG_WRITE, 0x6868, 0x2000, 0x00000220 },
-	{ REG_WRITE, 0x686c, 0x2000, 0x00000410 },
-	{ REG_WRITE, TVW_CONTROL_TWO, 0x2000, 0x00000020 },
-	{ REG_WRITE, TVW_PAL_MOTION_CTRL1_2, 0x2000, 0x01cc3f3c },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_LOW_LL_WIN, 0x2000, 0x00001a16 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_LOW_LOST, 0x2000, 0x00001d16 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_FOUND, 0x2000, 0x00008070 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_REC_LL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_CONTROL_1D1_2, 0x2000, 0x00001000 },
-	{ REG_WRITE, TVW_CONTROL_1D3_4, 0x2000, 0x20100988 },
-	{ REG_WRITE, TVW_LINE_COUNT3, 0x2000, 0x0000003c },
-	{ REG_WRITE, TVW_IF_COEF1, 0x2000, 0x02020e01 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_REC_LOST, 0x2000, 0x00008302 },
-	{ REG_WRITE, TVW_LINE_COUNT2, 0x2000, 0xe0c03020 },
-	{ REG_WRITE, TVW_LINE_COUNT1, 0x2000, 0x000b1770 },
-	{ REG_WRITE, 0x6870, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a58, 0x2000, 0x00000004 },
-	{ REG_WRITE, 0x6a5c, 0x2000, 0x000000c0 },
-	{ REG_WRITE, 0x6898, 0x2000, 0x3820000d },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_3_4, 0x2000, 0x40800e40 },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_7_8, 0x2000, 0x08000600 },
-	{ REG_WRITE, TVW_SYNC_STRIP_V_DETECT_9, 0x2000, 0x10000a00 },
-	{ REG_WRITE, TVW_BACK_PORCH, 0x2000, 0x30002000 },
-	{ REG_WRITE, TVW_SYNC_DETECT_DB1_2, 0x2000, 0x00000022 },
-	{ REG_WRITE, TVW_DEBUG_CONV_1_2, 0x2000, 0x003e0000 },
-	{ REG_WRITE, TVW_LAST_TBC_DB7, 0x2000, 0x00c27f44 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_WRITE, TVW_AGC_CONTROL_4_5, 0x2000, 0x81008000 },
-	{ REG_WRITE, TVW_NEG_BP_CTR3_4, 0x2000, 0xd7970580 },
-	{ REG_WRITE, TVW_D2_COEFF_17_16, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_CATV_DB1_2, 0x2000, 0xe85b281e },
-	{ REG_WRITE, TVW_RESAMP_STATUS, 0x2000, 0x80810001 },
-	{ REG_WRITE, TVW_PEAK_WHITE_THRESH, 0x2000, 0x00006100 },
-	{ REG_WRITE, TVW_PEAK_WHITE_HWIN, 0x2000, 0x03008003 },
-	{ REG_WRITE, TVW_PEAK_WHITE_VWIN, 0x2000, 0x08000000 },
-	{ REG_WRITE, TVW_PEAK_WHITE_AVERAGE, 0x2000, 0x00000800 },
-	{ REG_WRITE, 0x688c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68ec, 0x2000, 0x00000500 },
-	{ REG_WRITE, TVW_CATV_FIELD, 0x2000, 0xa034800c },
-	{ REG_WRITE, TVW_RESAMP_POWER_THRESHOLD_HIGH, 0x2000, 0x01000120 },
-	{ REG_WRITE, TVW_VDEC_REC_LINE_MEAS, 0x2000, 0x00000003 },
-	{ REG_WRITE, 0x6aa4, 0x2000, 0x0038222f },
-	{ REG_WRITE, TVW_SECAM_DIAG, 0x2000, 0x00030000 },
-	{ REG_WRITE, 0x6ab4, 0x2000, 0x00800040 },
-	{ REG_WRITE, 0x6ab8, 0x2000, 0x010000c0 },
-	{ REG_WRITE, 0x6b34, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6b38, 0x2000, 0x0000000b },
-	{ REG_WRITE, 0x6c7c, 0x2000, 0x00000590 },
-	{ REG_WRITE, 0x6908, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x691c, 0x2000, 0x00000005 },
-	{ REG_WRITE, TVW_TBC_CBCR_DELAY, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_OFFSET_SKEW, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_PAUSE, 0x2000, 0xf8000000 },
-	{ REG_WRITE, TVW_TBC_PLL_OVER_GAIN, 0x2000, 0x00003d78 },
-	{ REG_WRITE, TVW_TBC_LINE_BUF_FREQ_DIF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_TBC_LINE_BUF_READ_DISTANCE, 0x2000, 0xffffffff },
-	{ REG_WRITE, TVW_MEMORY_MARGIN_CTL0, 0x2000, 0x7c0081be },
-	{ REG_WRITE, TVW_MEMORY_MARGIN_CTL1, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_FSC_PROG1_2, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x650c, 0x2000, 0x0e1c0000 },
-	{ REG_WRITE, TVW_FSC_PROG3_4, 0x2000, 0x3b80ffff },
-	{ REG_WRITE, TVW_VSYNC_SLICE1_4, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ABS_SQ_BURST_IIR_N_EN, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ABS_SQ_BURST_IIR_P_EP, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VDEC_FIFO_CTL, 0x2000, 0x000f0000 },
-	{ REG_WRITE, TVW_VDEC_VIDEO_FLAGS, 0x2000, 0x0410fdcf },
-	{ REG_WRITE, TVW_CB_PLL_ACCUM, 0x2000, 0x14401c0a },
-	{ REG_WRITE, TVW_CB_PLL_FLAG, 0x2000, 0x60404180 },
-	{ REG_WRITE, TVW_CP_CTRL, 0x2000, 0x8c28f095 },
-	{ REG_WRITE, TVW_MEASURED_NOISE, 0x2000, 0xfc005420 },
-	{ REG_WRITE, TVW_TBC_SM_CTRL, 0x2000, 0x00000a0a },
-	{ REG_WRITE, TVW_TBC_SM_VBI_WIND_START, 0x2000, 0x00001400 },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG1, 0x2000, 0x00137fff },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG2, 0x2000, 0xffec0000 },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG3, 0x2000, 0x0000f82f },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG4, 0x2000, 0x430a4810 },
-	{ REG_WRITE, TVW_BP_LEVEL, 0x2000, 0xf08c194f },
-	{ REG_WRITE, TVW_NEW_AGC_GAIN, 0x2000, 0x06060200 },
-	{ REG_WRITE, TVW_ACC_GAIN, 0x2000, 0x06080606 },
-	{ REG_WRITE, TVW_DEMOD_IIR, 0x2000, 0x04350808 },
-	{ REG_WRITE, TVW_ABS_SQ_BURST_IIR, 0x2000, 0x01200120 },
-	{ REG_WRITE, TVW_FIELD_V_POS, 0x2000, 0x03100000 },
-	{ REG_WRITE, TVW_RESAMP0_DEBUG, 0x2000, 0x01200100 },
-	{ REG_WRITE, TVW_CLAMP_DEBUG, 0x2000, 0x000204ff },
-	{ REG_WRITE, TVW_VFLIP_PROG, 0x2000, 0x20f20560 },
-	{ REG_WRITE, TVW_PAL_VFLIP_TH1_2, 0x2000, 0x304a0832 },
-	{ REG_WRITE, TVW_PAL_VFLIP_TH3_4, 0x2000, 0x1e40f20a },
-	{ REG_WRITE, TVW_VFLIP_MAX1_2, 0x2000, 0x0a404400 },
-	{ REG_WRITE, TVW_VFLIP_MAX3_4, 0x2000, 0x2832423c },
-	{ REG_WRITE, TVW_VFLIP_MAX5_6, 0x2000, 0xff404100 },
-	{ REG_WRITE, TVW_VFLIP_CK_SNAP, 0x2000, 0x050e4000 },
-	{ REG_WRITE, TVW_STANDARD_CONTROL1_2, 0x2000, 0x7010020e },
-	{ REG_WRITE, TVW_AUTO_SM1, 0x2000, 0x0a085000 },
-	{ REG_WRITE, TVW_AUTO_VFLIP1_2, 0x2000, 0x64648440 },
-	{ REG_WRITE, TVW_AUTO_VFLIP3_4, 0x2000, 0x8b000240 },
-	{ REG_WRITE, TVW_AUTO_VFLIP5_6, 0x2000, 0x04b41eb4 },
-	{ REG_WRITE, TVW_SCART_CTRL, 0x2000, 0x60ff2000 },
-	{ REG_WRITE, TVW_AUTO_READ1, 0x2000, 0x20640650 },
-	{ REG_WRITE, TVW_VFLIP1_2_ON, 0x2000, 0x00392064 },
-	{ REG_WRITE, TVW_CBPLL_ABS, 0x2000, 0x019a01ea },
-	{ REG_WRITE, TVW_LPF_LL, 0x2000, 0x004005fa },
-	{ REG_WRITE, TVW_FPLL_DBG_PORT, 0x2000, 0x817a400a },
-	{ REG_WRITE, TVW_NOISE_MEASURE_CONTROL, 0x2000, 0x06406040 },
-	{ REG_WRITE, TVW_NOISE_MEASURE_VCOUNT_WINDOW, 0x2000, 0x009b0000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR6, 0x2000, 0x00000f68 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR7, 0x2000, 0x28000000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR8, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR9, 0x2000, 0xfffff000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR10, 0x2000, 0x11302020 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR11, 0x2000, 0x000a0a0a },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP16, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_CONTROL3, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_CONTROL5, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x66d8, 0x2000, 0x0f002f00 },
-	{ REG_WRITE, 0x66dc, 0x2000, 0x4a001f00 },
-	{ REG_WRITE, TVW_VDEC_INTERRUPT_ENABLE, 0x2000, 0xffff2440 },
-	{ REG_WRITE, TVW_VDEC_INTERRUPT_CLEAR, 0x2000, 0x0000ff00 },
-	{ REG_WRITE, TVW_VDEC_LOCK_INTR_CTRL, 0x2000, 0xffffffff },
-	{ REG_WRITE, TVW_VDEC_MV_INTR_CTRL, 0x2000, 0x00ff0000 },
-	{ REG_WRITE, TVW_VDEC_TRICK_MODE_INTR_CTRL, 0x2000, 0x20802020 },
-	{ REG_WRITE, TVW_SECAM_CTRL1, 0x2000, 0x0a603042 },
-	{ REG_WRITE, TVW_SECAM_CTRL2, 0x2000, 0xff380620 },
-	{ REG_WRITE, TVW_SECAM_BURST2, 0x2000, 0x000017fd },
-	{ REG_WRITE, TVW_SECAM_CLAMP_CTRL3, 0x2000, 0x00000008 },
-	{ REG_WRITE, TVW_SECAM_DEEMPHASIS_COEFF, 0x2000, 0x000007f0 },
-	{ REG_WRITE, TVW_VDEC_STD_INTR_CTRL, 0x2000, 0x40c64040 },
-	{ REG_WRITE, TVW_SECAM_SEPARATION_CNTRL, 0x2000, 0x0000001d },
-	{ REG_WRITE, TVW_SECAM_EMPHASIS_BOOST, 0x2000, 0x000007cd },
-	{ REG_WRITE, TVW_SECAM_DIAG_DATA, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_SECAM_CLAMP_CTRL4, 0x2000, 0x020006bd },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL4, 0x2000, 0x07d80003 },
-	{ REG_WRITE, TVW_SECAM_SEPARATION_CTRL1, 0x2000, 0x001107f3 },
-	{ REG_WRITE, TVW_SECAM_CONTROL, 0x2000, 0x0009001e },
-	{ REG_WRITE, TVW_SECAM_CLOCHE_COEFB0, 0x2000, 0x07da07dc },
-	{ REG_WRITE, TVW_SECAM_CLOCHE_COEFB1, 0x2000, 0x00530018 },
-	{ REG_WRITE, TVW_SECAM_CLOCHE_COEFA1, 0x2000, 0x07920032 },
-	{ REG_WRITE, TVW_VDEC_NOISE_MEASURE_HIGH_INTR_CTRL, 0x2000, 0x0000c280 },
-	{ REG_WRITE, TVW_SECAM_NOISE_SCALING_THRESH_LOW, 0x2000, 0x028606d2 },
-	{ REG_WRITE, TVW_SECAM_NOISE_SCALING_SLOPE, 0x2000, 0xc8c802c8 },
-	{ REG_WRITE, TVW_SECAM_NOISE_MEASURE_CONTROL, 0x2000, 0x000014a7 },
-	{ REG_WRITE, TVW_SECAM_NOISE_MEASURE_VCOUNT_WINDOW, 0x2000, 0x80001460 },
-	{ REG_WRITE, TVW_SECAM_NOISE_MEASUREMENT, 0x2000, 0x00007000 },
-	{ REG_WRITE, TVW_SECAM_CARRIER_AMP_CTRL, 0x2000, 0x00010000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP1, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VDEC_NOISE_MEASURE_LOW_INTR_CTRL, 0x2000, 0x10101410 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP3, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP4, 0x2000, 0x00080000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP5, 0x2000, 0x112a0028 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP6, 0x2000, 0x00440e58 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP7, 0x2000, 0x80be2204 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP8, 0x2000, 0x04042cb4 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP9, 0x2000, 0x00001043 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP10, 0x2000, 0x61500000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP11, 0x2000, 0x64304180 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP12, 0x2000, 0xa028a028 },
-	{ REG_WRITE, TVW_VDEC_NOISE_INTR_TRIGGER, 0x2000, 0x8f781058 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP13, 0x2000, 0x001402ff },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP14, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VDEC_VSYNC_INTR_CTRL, 0x2000, 0xf532146f },
-	{ REG_WRITE, TVW_VDEC_FIELD_ID_INTR_CTRL, 0x2000, 0x1e1e241e },
-	{ REG_WRITE, TVW_VDEC_DEBUG1_INTR_CTRL, 0x2000, 0x8e8108b7 },
-	{ REG_WRITE, TVW_VDEC_MD_CTRL, 0x2000, 0xf8319999 },
-	{ REG_WRITE, TVW_MOTION_1D_2D, 0x2000, 0xd562b06c },
-	{ REG_WRITE, TVW_TRICK_AUTO_STANDARD1_2, 0x2000, 0xdc826001 },
-	{ REG_WRITE, TVW_VSYNC_SLICE3, 0x2000, 0x28124f3d },
-	{ REG_WRITE, TVW_SAME_CH_3D1_2, 0x2000, 0x0998cf2b },
-	{ REG_WRITE, 0x6568, 0x2000, 0xf1f54b1b },
-	{ REG_WRITE, 0x656c, 0x2000, 0x3c32ef3d },
-	{ REG_WRITE, TVW_SECAM_SEP_DB0, 0x2000, 0xa9983320 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB1, 0x2000, 0x34d9433e },
-	{ REG_WRITE, TVW_SECAM_SEP_DB2, 0x2000, 0x1fa39825 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB3, 0x2000, 0x4a9e522b },
-	{ REG_WRITE, TVW_SECAM_SEP_DB4, 0x2000, 0x5cfb4e7b },
-	{ REG_WRITE, TVW_SECAM_SEP_DB5, 0x2000, 0x2452d0c3 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB6, 0x2000, 0xea9efd2b },
-	{ REG_WRITE, TVW_SECAM_SEP_DB7, 0x2000, 0xd8f051db },
-	{ REG_WRITE, TVW_SECAM_SEP_DB8, 0x2000, 0x8020bf3d },
-	{ REG_WRITE, TVW_SECAM_SEP_DB9, 0x2000, 0x14188025 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB10, 0x2000, 0x0d501c1f },
-	{ REG_WRITE, TVW_SECAM_SEP_DB11, 0x2000, 0x30000030 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB12, 0x2000, 0x88888888 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB13, 0x2000, 0x88887888 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB14, 0x2000, 0x88886788 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB15, 0x2000, 0x56780004 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB16, 0x2000, 0x45680023 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR0, 0x2000, 0x23460002 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR1, 0x2000, 0x12350001 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR2, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR3, 0x2000, 0x44030a05 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR12, 0x2000, 0x400a2030 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR13, 0x2000, 0x08808600 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR14, 0x2000, 0x28144000 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR15, 0x2000, 0x28142800 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR16, 0x2000, 0x14288000 },
-	{ REG_WRITE, 0x65f8, 0x2000, 0x60f0004f },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL1, 0x2000, 0x0b183e2a },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL2, 0x2000, 0xbe108b3b },
-	{ REG_WRITE, TVW_SECAM_AGC_CTRL3, 0x2000, 0x04ff1010 },
-	{ REG_WRITE, TVW_SECAM_CTRL0, 0x2000, 0x00447fff },
-	{ REG_WRITE, TVW_NON_STANDARD_FLAG4, 0x2000, 0x430a4810 },
-	{ REG_WRITE, TVW_SECAM_CTRL2, 0x2000, 0xff20060c },
-	{ REG_READ,  TVW_SECAM_SEP_DB11, 0x2000, 0x30000030 },
-	{ REG_WRITE, TVW_SECAM_SEP_DB11, 0x2000, 0x30000230 },
-	{ REG_READ,  TVW_SECAM_NARROW_TRAP13, 0x2000, 0x001402ff },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP13, 0x2000, 0x000102ff },
-	{ REG_READ,  TVW_SECAM_NARROW_TRAP14, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SECAM_NARROW_TRAP14, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_SECAM_NOISE_MEASURE_CONTROL, 0x2000, 0x100014a3 },
-	{ REG_WRITE, TVW_SECAM_SEP_DR10, 0x2000, 0x11308080 },
-	{ REG_WRITE, TVW_TBC_SM_CTRL, 0x2000, 0x00040a0a },
-	{ REG_WRITE, TVW_TBC_SM_VBI_WIND_START, 0x2000, 0x140014ff },
-	{ REG_WRITE, 0x6b28, 0x2000, 0x000000d4 },
-	{ REG_WRITE, 0x6938, 0x2000, 0x000080ff },
-	{ REG_WRITE, 0x6938, 0x2000, 0x000000ff },
-	{ REG_WRITE, 0x6938, 0x2000, 0x000001ff },
-	{ REG_READ,  0x68ec, 0x2000, 0x00000500 },
-	{ REG_WRITE, 0x68ec, 0x2000, 0x00000500 },
-	{ REG_READ,  TVW_W9_10, 0x2000, 0x01000100 },
-	{ REG_WRITE, TVW_W9_10, 0x2000, 0x81008100 },
-	{ REG_READ,  TVW_W11, 0x2000, 0x01000100 },
-	{ REG_WRITE, TVW_W11, 0x2000, 0x81008100 },
-	{ REG_READ,  0x6860, 0x2000, 0x00004080 },
-	{ REG_WRITE, 0x6860, 0x2000, 0x00004084 },
-	{ REG_WRITE, 0x6904, 0x2000, 0xe40f100f },
-	{ REG_WRITE, TVW_PWM1_CLAMP_CTRL, 0x2000, 0xe4e4000e },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_WRITE, TVW_AGC_CONTROL_4_5, 0x2000, 0x81008000 },
-	{ REG_WRITE, 0x6b70, 0x2000, 0x00013000 },
-	{ REG_READ,  TVW_MEMORY_MARGIN_CTL0, 0x2000, 0x7c0081be },
-	{ REG_WRITE, TVW_MEMORY_MARGIN_CTL0, 0x2000, 0x7c2081be },
-	{ REG_WRITE, 0x6b50, 0x2000, 0x01000000 },
-	{ REG_WRITE, 0x6938, 0x2000, 0x00008000 },
-	{ REG_READ,  TVW_MEMORY_MARGIN_CTL0, 0x2000, 0x7c2081be },
-	{ REG_WRITE, TVW_MEMORY_MARGIN_CTL0, 0x2000, 0x7c2081be },
-	{ REG_READ,  TVW_VDEC_NOISE_INTR_TRIGGER, 0x2000, 0x8f781058 },
-	{ REG_WRITE, TVW_VDEC_NOISE_INTR_TRIGGER, 0x2000, 0x80781058 },
-	{ REG_READ,  TVW_VDEC_FIFO_CTL, 0x2000, 0x000f0000 },
-	{ REG_WRITE, TVW_VDEC_FIFO_CTL, 0x2000, 0x000f0000 },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_LOW_LL_WIN, 0x2000, 0x00001c1a },
-	{ REG_WRITE, TVW_HLOCK_ACQUIRE_LOW_LOST, 0x2000, 0x00000516 },
-	{ REG_READ,  TVW_DVSO_CRTC_SETTINGS, 0x2000, 0x020d06b4 },
-	{ REG_WRITE, TVW_DVSO_CRTC_SETTINGS, 0x2000, 0x020d06b4 },
-	{ REG_WRITE, TVW_DVSO_CRTC_VSTART, 0x2000, 0x01080001 },
-	{ REG_WRITE, TVW_DVSO_CRTC_VBI_START_LINE, 0x2000, 0x0111000a },
-	{ REG_WRITE, TVW_DVSO_CRTC_VID_START_LINE, 0x2000, 0x011e0017 },
-	{ REG_READ,  TVW_VBIST_GENERATOR, 0x2000, 0x000000c0 },
-	{ REG_WRITE, TVW_VBIST_GENERATOR, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VBIST_GENERATOR, 0x2000, 0x000000c8 },
-	{ REG_READ,  TVW_VBIST_GENERATOR, 0x2000, 0x000000c8 },
-	{ REG_WRITE, TVW_VBIST_GENERATOR, 0x2000, 0x000000ca },
-	{ REG_WRITE, TVW_VBIST_VBI_HEIGHT, 0x2000, 0x00000002 },
-	{ REG_WRITE, TVW_VBIST_VID_WIDTH, 0x2000, 0x000002d0 },
-	{ REG_WRITE, TVW_VBIST_VID_HEIGHT, 0x2000, 0x000000f0 },
-	{ REG_WRITE, 0x6a58, 0x2000, 0x0000080e },
-	{ REG_READ,  TVW_NEG_BP_CTR3_4, 0x2000, 0xd7970580 },
-	{ REG_WRITE, TVW_NEG_BP_CTR3_4, 0x2000, 0x57170580 },
-	{ REG_READ,  TVW_CPU_HALF_BAND, 0x2000, 0x80048004 },
-	{ REG_WRITE, TVW_CPU_HALF_BAND, 0x2000, 0x80048004 },
-	{ REG_READ,  TVW_CPU_HALF_BAND, 0x2000, 0x80048004 },
-	{ REG_WRITE, TVW_CPU_HALF_BAND, 0x2000, 0x80048004 },
-	{ REG_WRITE, 0x68e4, 0x2000, 0x0000011f },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000001 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000002 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000003 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000004 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000005 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000007 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000008 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000009 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000a },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000b },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000c },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000d },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000e },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000f },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000010 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000011 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000012 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000013 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000014 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000015 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000016 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000017 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000018 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000019 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001a },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001b },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001c },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001d },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001e },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001f },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000a },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x000000ff },
-	{ REG_READ,  0x6b34, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6b34, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_SYNC_LOW_DB5, 0x2000, 0x00000294 },
-	{ REG_WRITE, 0x68e4, 0x2000, 0x0000011f },
-	{ REG_READ,  0x6b20, 0x2000, 0x000040a6 },
-	{ REG_WRITE, 0x6b20, 0x2000, 0x000040a6 },
-	{ REG_READ,  0x6ad0, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6ad0, 0x2000, 0x02000200 },
-	{ REG_READ,  0x6ad4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ad4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000001 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000002 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000003 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000004 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000005 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000007 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000008 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000009 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000a },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000b },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000c },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000d },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000e },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000000f },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000ffc },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000010 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000011 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000012 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000013 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000014 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000015 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000016 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000017 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000018 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x00000019 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001a },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001b },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001c },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001d },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001e },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68e0, 0x2000, 0x00000000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x68dc, 0x2000, 0x0000001f },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x6b34, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6b34, 0x2000, 0x00000001 },
-	{ REG_READ,  0x6b38, 0x2000, 0x0000000b },
-	{ REG_WRITE, 0x6b38, 0x2000, 0x0000000c },
-	{ REG_READ,  0x68a8, 0x2000, 0x00002000 },
-	{ REG_WRITE, 0x68a8, 0x2000, 0x00002000 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x68f8, 0x2000, 0x00000006 },
-	{ REG_READ,  0x6b20, 0x2000, 0x000000a6 },
-	{ REG_WRITE, 0x6b20, 0x2000, 0x000000a6 },
-	{ REG_WRITE, TVW_CATV_DB1_2, 0x2000, 0x285b281e },
-	{ REG_READ,  TVW_CATV_DB1_2, 0x2000, 0x285b281e },
-	{ REG_WRITE, TVW_CATV_DB1_2, 0x2000, 0xe85b281e },
-	{ REG_READ,  0x6ad4, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6ad4, 0x2000, 0x00000000 },
-	{ REG_READ,  0x6ad0, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6ad0, 0x2000, 0x02000200 },
-	{ REG_READ,  0x6a90, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x6a90, 0x2000, 0x00000000 },
-	{ REG_READ,  0x6ae0, 0x2000, 0x02000200 },
-	{ REG_READ,  0x6ad8, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6ae0, 0x2000, 0x02000200 },
-	{ REG_WRITE, 0x6ad8, 0x2000, 0x02000200 },
-	{ REG_READ,  0x68f0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x68f0, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ E0_MAGIC,  0x5006,      0, 0x02070120 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000100 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000012 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000012 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000012 },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c0 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_WRITE, TVW_ADEC_MIXER2_DTO, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000006 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000009 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffed },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffae },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff84 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff58 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff2f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff13 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff24 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff67 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffdd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000008a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000016f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000288 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000003cd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000052e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000699 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000007f8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000934 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000a38 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000af0 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b50 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fff8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fff3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffec },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffdc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd4 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffce },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffcb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffcd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffed },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000087 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000000de },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000014a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000001c9 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000025a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000002f9 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000003a2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000450 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000004fd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000005a3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000063a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000006bb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000722 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000076a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000078e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000003f },
-	{ REG_WRITE, TVW_ADEC_DEMOD1_CONTROL, 0x2000, 0x00000900 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO3, 0x2000, 0x001e82d7 },
-	{ REG_WRITE, TVW_ADEC_PILOT_CHANNEL, 0x2000, 0x00000a2c },
-	{ REG_WRITE, TVW_ADEC_SAP_CHANNEL, 0x2000, 0x00000a09 },
-	{ REG_WRITE, TVW_ADEC_POWER_LPF1, 0x2000, 0x000000aa },
-	{ REG_WRITE, TVW_ADEC_POWER_LPF2, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_MEASURE, 0x2000, 0x00002a00 },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_THRD_HIGH, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_THRD_LOW, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_MEASURE, 0x2000, 0x000027e0 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_THRD_HIGH, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_THRD_LOW, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_MEASURE, 0x2000, 0x01ae1e60 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_MEASURE, 0x2000, 0x0006007d },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_WRITE, TVW_ADEC_DECIMATOR_BYPASS_CONTROL, 0x2000, 0x00080140 },
-	{ REG_WRITE, TVW_ADEC_FIR2_CONTROL, 0x2000, 0x00037f05 },
-	{ REG_WRITE, TVW_ADEC_DEMOD2_CONTROL, 0x2000, 0x000000e8 },
-	{ REG_WRITE, TVW_ADEC_UPSAMPLER_GAIN, 0x2000, 0x00000e00 },
-	{ REG_WRITE, TVW_ADEC_EXPANDER_WIDEBAND_GAIN, 0x2000, 0x00003ff0 },
-	{ REG_WRITE, TVW_ADEC_EXPANDER_SPECTRAL_GAIN, 0x2000, 0x00002c0a },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_WRITE, TVW_ADEC_AVC_LPF, 0x2000, 0x00000020 },
-	{ REG_WRITE, TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_NOTCH_ZERO, 0x2000, 0x00800010 },
-	{ REG_WRITE, TVW_ADEC_NOTCH_POLE, 0x2000, 0x007fc01a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_ACQUIRE_LPF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_TRACKING_LPF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_FIFO_K1, 0x2000, 0x00000576 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_FIFO_K2, 0x2000, 0x0000001d },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_THROTTLE_FACTOR, 0x2000, 0x00000008 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_THROTTLE_THRD, 0x2000, 0x00000008 },
-	{ REG_WRITE, TVW_ADEC_FIFO_STATUS, 0x2000, 0x00000007 },
-	{ REG_WRITE, TVW_ADEC_FIFO_OVERFLOW_CNTR, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_FIFO_UNDERFLOW_CNTR, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_I2S_WS_OFFSET, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_WRITE, TVW_ADEC_DECODER_DIAG, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_DECODER_DIAG_DATA, 0x2000, 0x00125c00 },
-	{ REG_WRITE, TVW_ADEC_DECODER_CONTROL, 0x2000, 0x00000320 },
-	{ REG_WRITE, TVW_ADEC_TEST_MUX_SELECT, 0x2000, 0x00000012 },
-	{ REG_WRITE, TVW_ADEC_NICAM_ERROR_THRESHOLD, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_NICAM_ERROR_CNTR, 0x2000, 0x000001fe },
-	{ REG_WRITE, TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_WRITE, TVW_ADEC_NICAM_COEFF_DQPSK_RESAMPL, 0x2000, 0x78200000 },
-	{ REG_WRITE, TVW_ADEC_NICAM_COEFF_DQPSK_LPF, 0x2000, 0x00000400 },
-	{ REG_WRITE, TVW_ADEC_DC_OFFSET, 0x2000, 0x0002dbfc },
-	{ REG_WRITE, TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00000033 },
-	{ REG_WRITE, 0x50f8, 0x2000, 0x00000087 },
-	{ REG_WRITE, 0x50fc, 0x2000, 0x00007003 },
-	{ REG_WRITE, 0x5100, 0x2000, 0x0001700d },
-	{ REG_WRITE, 0x5104, 0x2000, 0x00035024 },
-	{ REG_WRITE, 0x5108, 0x2000, 0x0006304a },
-	{ REG_WRITE, 0x510c, 0x2000, 0x0009c07e },
-	{ REG_WRITE, 0x5110, 0x2000, 0x000d60ba },
-	{ REG_WRITE, 0x5114, 0x2000, 0x001050f0 },
-	{ REG_WRITE, 0x5118, 0x2000, 0x0011b113 },
-	{ REG_WRITE, 0x511c, 0x2000, 0x05930a65 },
-	{ REG_WRITE, 0x5120, 0x2000, 0x0004fffc },
-	{ REG_WRITE, 0x5124, 0x2000, 0x0004fffc },
-	{ REG_WRITE, 0x5128, 0x2000, 0xfff02200 },
-	{ REG_WRITE, 0x512c, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x5130, 0x2000, 0x0000000a },
-	{ REG_WRITE, 0x5134, 0x2000, 0x00000005 },
-	{ REG_WRITE, 0x5138, 0x2000, 0x0000000f },
-	{ REG_WRITE, 0x513c, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x5140, 0x2000, 0x0000aaaa },
-	{ REG_WRITE, 0x5144, 0x2000, 0x0000cccc },
-	{ REG_WRITE, 0x5148, 0x2000, 0x0000f0f0 },
-	{ REG_WRITE, 0x514c, 0x2000, 0x0000ff00 },
-	{ REG_WRITE, 0x5154, 0x2000, 0x001fb3c5 },
-	{ REG_WRITE, 0x5158, 0x2000, 0x400a4e50 },
-	{ REG_WRITE, 0x515c, 0x2000, 0x0020f808 },
-	{ REG_WRITE, 0x5160, 0x2000, 0x002000a6 },
-	{ REG_WRITE, 0x5164, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5168, 0x2000, 0xff9dcc48 },
-	{ REG_WRITE, 0x516c, 0x2000, 0x004e6632 },
-	{ REG_WRITE, 0x5170, 0x2000, 0xffe0ffe0 },
-	{ REG_WRITE, 0x5174, 0x2000, 0x0000120f },
-	{ REG_WRITE, 0x5178, 0x2000, 0x01ffff8e },
-	{ REG_WRITE, 0x517c, 0x2000, 0x049f0d49 },
-	{ REG_WRITE, 0x5180, 0x2000, 0x0008049f },
-	{ REG_WRITE, 0x5184, 0x2000, 0x112c6616 },
-	{ REG_WRITE, 0x5188, 0x2000, 0x00a40923 },
-	{ REG_WRITE, 0x518c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5190, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5194, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5198, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x519c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x51a0, 0x2000, 0x01028c00 },
-	{ REG_WRITE, 0x51a4, 0x2000, 0x0202bb00 },
-	{ REG_WRITE, 0x51a8, 0x2000, 0x00350502 },
-	{ REG_WRITE, 0x51ac, 0x2000, 0x00322802 },
-	{ REG_WRITE, 0x51b0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x51b4, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000003f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00000033 },
-	{ REG_WRITE, TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00eab4c2 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00000014 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x0000003c },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000578 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x000005dc },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_READ,  TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_READ,  TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_READ,  TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_WRITE, TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_READ,  TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_DEMOD2_CONTROL, 0x2000, 0x000000e8 },
-	{ REG_WRITE, TVW_ADEC_UPSAMPLER_GAIN, 0x2000, 0x00000e00 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000012 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_READ,  TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_WRITE, TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c0 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_WRITE, TVW_ADEC_MIXER2_DTO, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000006 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000009 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffed },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffae },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff84 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff58 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff2f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff13 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff24 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff67 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffdd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000008a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000016f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000288 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000003cd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000052e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000699 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000007f8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000934 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000a38 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000af0 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b50 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fff8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fff3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffec },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffdc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd4 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffce },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffcb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffcd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffed },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000087 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000000de },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000014a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000001c9 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000025a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000002f9 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000003a2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000450 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000004fd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000005a3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000063a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x000006bb },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000722 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000076a },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000078e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000003f },
-	{ REG_WRITE, TVW_ADEC_DEMOD1_CONTROL, 0x2000, 0x00000900 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_WRITE, TVW_ADEC_MIXER3_DTO3, 0x2000, 0x001e82d7 },
-	{ REG_WRITE, TVW_ADEC_PILOT_CHANNEL, 0x2000, 0x00000a2c },
-	{ REG_WRITE, TVW_ADEC_SAP_CHANNEL, 0x2000, 0x00000a09 },
-	{ REG_WRITE, TVW_ADEC_POWER_LPF1, 0x2000, 0x000000aa },
-	{ REG_WRITE, TVW_ADEC_POWER_LPF2, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_MEASURE, 0x2000, 0x00002a00 },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_THRD_HIGH, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC1_POWER_THRD_LOW, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_MEASURE, 0x2000, 0x000027e0 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_THRD_HIGH, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_SC2_POWER_THRD_LOW, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_MEASURE, 0x2000, 0x01ae1e60 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_MEASURE, 0x2000, 0x0006007d },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_WRITE, TVW_ADEC_DECIMATOR_BYPASS_CONTROL, 0x2000, 0x00080140 },
-	{ REG_WRITE, TVW_ADEC_FIR2_CONTROL, 0x2000, 0x00037f05 },
-	{ REG_WRITE, TVW_ADEC_DEMOD2_CONTROL, 0x2000, 0x000000e8 },
-	{ REG_WRITE, TVW_ADEC_UPSAMPLER_GAIN, 0x2000, 0x00000e00 },
-	{ REG_WRITE, TVW_ADEC_EXPANDER_WIDEBAND_GAIN, 0x2000, 0x00003ff0 },
-	{ REG_WRITE, TVW_ADEC_EXPANDER_SPECTRAL_GAIN, 0x2000, 0x00002c0a },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_WRITE, TVW_ADEC_AVC_LPF, 0x2000, 0x00000020 },
-	{ REG_WRITE, TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_NOTCH_ZERO, 0x2000, 0x00800010 },
-	{ REG_WRITE, TVW_ADEC_NOTCH_POLE, 0x2000, 0x007fc01a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_ACQUIRE_LPF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_TRACKING_LPF, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_FIFO_K1, 0x2000, 0x00000576 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_FIFO_K2, 0x2000, 0x0000001d },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_THROTTLE_FACTOR, 0x2000, 0x00000008 },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_THROTTLE_THRD, 0x2000, 0x00000008 },
-	{ REG_WRITE, TVW_ADEC_FIFO_STATUS, 0x2000, 0x00000007 },
-	{ REG_WRITE, TVW_ADEC_FIFO_OVERFLOW_CNTR, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_FIFO_UNDERFLOW_CNTR, 0x2000, 0x000000ff },
-	{ REG_WRITE, TVW_ADEC_I2S_WS_OFFSET, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_WRITE, TVW_ADEC_DECODER_DIAG, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_DECODER_DIAG_DATA, 0x2000, 0x00125c00 },
-	{ REG_WRITE, TVW_ADEC_DECODER_CONTROL, 0x2000, 0x00000320 },
-	{ REG_WRITE, TVW_ADEC_TEST_MUX_SELECT, 0x2000, 0x00000012 },
-	{ REG_WRITE, TVW_ADEC_NICAM_ERROR_THRESHOLD, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_NICAM_ERROR_CNTR, 0x2000, 0x000001fe },
-	{ REG_WRITE, TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_WRITE, TVW_ADEC_NICAM_COEFF_DQPSK_RESAMPL, 0x2000, 0x78200000 },
-	{ REG_WRITE, TVW_ADEC_NICAM_COEFF_DQPSK_LPF, 0x2000, 0x00000400 },
-	{ REG_WRITE, TVW_ADEC_DC_OFFSET, 0x2000, 0x0002dbfc },
-	{ REG_WRITE, TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00000033 },
-	{ REG_WRITE, 0x50f8, 0x2000, 0x00000087 },
-	{ REG_WRITE, 0x50fc, 0x2000, 0x00007003 },
-	{ REG_WRITE, 0x5100, 0x2000, 0x0001700d },
-	{ REG_WRITE, 0x5104, 0x2000, 0x00035024 },
-	{ REG_WRITE, 0x5108, 0x2000, 0x0006304a },
-	{ REG_WRITE, 0x510c, 0x2000, 0x0009c07e },
-	{ REG_WRITE, 0x5110, 0x2000, 0x000d60ba },
-	{ REG_WRITE, 0x5114, 0x2000, 0x001050f0 },
-	{ REG_WRITE, 0x5118, 0x2000, 0x0011b113 },
-	{ REG_WRITE, 0x511c, 0x2000, 0x05930a65 },
-	{ REG_WRITE, 0x5120, 0x2000, 0x0004fffc },
-	{ REG_WRITE, 0x5124, 0x2000, 0x0004fffc },
-	{ REG_WRITE, 0x5128, 0x2000, 0xfff02200 },
-	{ REG_WRITE, 0x512c, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x5130, 0x2000, 0x0000000a },
-	{ REG_WRITE, 0x5134, 0x2000, 0x00000005 },
-	{ REG_WRITE, 0x5138, 0x2000, 0x0000000f },
-	{ REG_WRITE, 0x513c, 0x2000, 0x00000006 },
-	{ REG_WRITE, 0x5140, 0x2000, 0x0000aaaa },
-	{ REG_WRITE, 0x5144, 0x2000, 0x0000cccc },
-	{ REG_WRITE, 0x5148, 0x2000, 0x0000f0f0 },
-	{ REG_WRITE, 0x514c, 0x2000, 0x0000ff00 },
-	{ REG_WRITE, 0x5154, 0x2000, 0x001fb3c5 },
-	{ REG_WRITE, 0x5158, 0x2000, 0x400a4e50 },
-	{ REG_WRITE, 0x515c, 0x2000, 0x0020f808 },
-	{ REG_WRITE, 0x5160, 0x2000, 0x002000a6 },
-	{ REG_WRITE, 0x5164, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5168, 0x2000, 0xff9dcc48 },
-	{ REG_WRITE, 0x516c, 0x2000, 0x004e6632 },
-	{ REG_WRITE, 0x5170, 0x2000, 0xffe0ffe0 },
-	{ REG_WRITE, 0x5174, 0x2000, 0x0000120f },
-	{ REG_WRITE, 0x5178, 0x2000, 0x01ffff8e },
-	{ REG_WRITE, 0x517c, 0x2000, 0x049f0d49 },
-	{ REG_WRITE, 0x5180, 0x2000, 0x0008049f },
-	{ REG_WRITE, 0x5184, 0x2000, 0x112c6616 },
-	{ REG_WRITE, 0x5188, 0x2000, 0x00a40923 },
-	{ REG_WRITE, 0x518c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5190, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5194, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x5198, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x519c, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x51a0, 0x2000, 0x01028c00 },
-	{ REG_WRITE, 0x51a4, 0x2000, 0x0202bb00 },
-	{ REG_WRITE, 0x51a8, 0x2000, 0x00350502 },
-	{ REG_WRITE, 0x51ac, 0x2000, 0x00322802 },
-	{ REG_WRITE, 0x51b0, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x51b4, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000003f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000040 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000041 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000042 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000043 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000044 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000045 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000046 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000047 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000048 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000049 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000004f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000050 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000051 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000052 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000053 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000054 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000055 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000056 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000057 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000058 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000059 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000005f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000060 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000061 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000062 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000063 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000001 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000003 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffe },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000066 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffa },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000067 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000004 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000068 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000d },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000069 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffd },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffe8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffff },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000002b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000000c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffb8 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000006f },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ffd3 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000070 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000064 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000071 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000065 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000072 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff83 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000073 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff40 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000074 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000084 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000075 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000148 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000076 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000ff9c },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000077 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fdf5 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000078 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fffc },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x00000079 },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000032b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007a },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000100 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007b },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fae2 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007c },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x0000fc4e },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007d },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00000b0b },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007e },
-	{ REG_WRITE, TVW_ADEC_FIR1_COEFF, 0x2000, 0x00001b01 },
-	{ REG_WRITE, TVW_ADEC_FIR1_CONTROL, 0x2000, 0x0000007f },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00000033 },
-	{ REG_WRITE, TVW_ADEC_TESTMUX_DATA, 0x2000, 0x00eab4c2 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00001200 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_LOW, 0x2000, 0x00000014 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_READ,  TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x00001800 },
-	{ REG_WRITE, TVW_ADEC_PILOT_POWER_THRD_HIGH, 0x2000, 0x0000003c },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000250 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_LOW, 0x2000, 0x00000578 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_READ,  TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x00000300 },
-	{ REG_WRITE, TVW_ADEC_SAP_POWER_THRD_HIGH, 0x2000, 0x000005dc },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_READ,  TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_WRITE, TVW_ADEC_UPDATENCO_NCO, 0x2000, 0x008ce2aa },
-	{ REG_READ,  TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_READ,  TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_WRITE, TVW_ADEC_NICAM_NCO, 0x2000, 0x00aaaaab },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000019 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_READ,  TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_WRITE, TVW_ADEC_AVC_THRESHOLD, 0x2000, 0x00000080 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000011 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_READ,  TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_RAMPING_PERIOD, 0x2000, 0x0000000a },
-	{ REG_WRITE, TVW_ADEC_DEMOD2_CONTROL, 0x2000, 0x000000e8 },
-	{ REG_WRITE, TVW_ADEC_UPSAMPLER_GAIN, 0x2000, 0x00000e00 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_READ,  TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000010 },
-	{ REG_WRITE, TVW_ADEC_MATRIX_CONTROL, 0x2000, 0x00000012 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO1, 0x2000, 0x001fb3c2 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_READ,  TVW_ADEC_MIXER3_DTO2, 0x2000, 0x001f6784 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_READ,  TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_CONTROL, 0x2000, 0x000004c7 },
-	{ REG_WRITE, TVW_ADEC_MIXER1_DTO, 0x2000, 0x00155a61 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_READ,  TVW_RESET_CONTROL, 0x2000, 0x00000180 },
-	{ REG_WRITE, TVW_RESET_CONTROL, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_READ,  TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_WRITE, TVW_ADEC_I2S_CONTROL, 0x2000, 0x00002018 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ REG_READ,  TVW_IC_STATUS, 0x2000, 0x00100797 },
-	{ E0_MAGIC,       0,      0, 0x00010130 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x009fda37 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x009fda37 },
-
-	{ .op = MAX_REG_OP },
-}; // ati_00.pcap 50162, ati_00_array.txt 12417
-
-// ati_00.pcap 52331, ati_00_array.txt 12960
-struct tvwsdr_reg_cmd tvw_init7[] = {
-	{ UC_READ,   0xf101,      0,       0x04 },
-	{ UC_WRITE,  0xf101,      0,       0x06 },
-	{ UC_WRITE,  0xf090,      0,       0x00 },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf091,      0,       0x00 },
-	{ REG_WRITE, TVW_PATCH_REG, 0x2000, 0x00000000 },
-	{ UC_WRITE,  0xf0b2,      0,       0x00 },
-	{ UC_WRITE,  0xf0b3,      0,       0x00 },
-	{ UC_WRITE,  0xf0b4,      0,       0x00 },
-	{ UC_WRITE,  0xf0b5,      0,       0x00 },
-	{ REG_READ,  TVW_CLOCK_CONTROL_0, 0x2000, 0x009fda37 },
-	{ REG_WRITE, TVW_CLOCK_CONTROL_0, 0x2000, 0x00dfda37 },
-	{ REG_READ,  0x08f8, 0x2000, 0x00000000 },
-	{ REG_WRITE, 0x08f8, 0x2000, 0x00000000 },
-	{ REG_READ,  TVW_VIDEO_INPUT_0_CONTROL, 0x2000, 0x00000000 },
-	{ REG_WRITE, TVW_VIDEO_INPUT_0_CONTROL, 0x2000, 0xa01f0000 },
-	{ REG_READ,  TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x000f8524 },
-	{ REG_WRITE, TVW_VIDEO_ADC_0_CONTROL, 0x2000, 0x000f8524 },
-	{ REG_READ,  TVW_VIDEO_INPUT_1_CONTROL, 0x2000, 0x001f0000 },
-	{ REG_WRITE, TVW_VIDEO_INPUT_1_CONTROL, 0x2000, 0x001f0000 },
-	{ REG_READ,  TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x020f853e },
-	{ REG_WRITE, TVW_VIDEO_ADC_1_CONTROL, 0x2000, 0x020f853e },
-	{ UC_READ,   0xf00d,      0,       0xc0 },
-	{ UC_WRITE,  0xf00d,      0,       0xc1 },
-	{ UC_WRITE,  0xf00d,      0,       0xc0 },
-	{ UC_WRITE,  0xfb3d,      0,       0x00 },
-	{ UC_READ,   0xf00b,      0,       0x00 },
-	{ UC_WRITE,  0xf00b,      0,       0x40 },
-	{ UC_WRITE,  0xf00b,      0,       0x00 },
-	{ UC_READ,   0xf02b,      0,       0x00 },
-	{ UC_WRITE,  0xf02b,      0,       0x04 },
-	{ UC_READ,   0xf00d,      0,       0xc0 },
-	{ UC_WRITE,  0xf00d,      0,       0xc1 },
-	{ UC_WRITE,  0xf00d,      0,       0xc0 },
-	{ UC_WRITE,  0xf00d,      0,       0xc2 },
-	{ UC_WRITE,  0xf00d,      0,       0xc0 },
-	{ UC_WRITE,  0xf201,      0,       0x11 },
-	{ UC_WRITE,  0xf202,      0,       0x45 },
-	{ UC_WRITE,  0xf203,      0,       0x60 },
-	{ UC_WRITE,  0xf209,      0,       0x21 },
-	{ UC_WRITE,  0xf20a,      0,       0x1f },
-	{ UC_WRITE,  0xf20b,      0,       0xd5 },
-	{ UC_WRITE,  0xf200,      0,       0x00 },
-	{ UC_WRITE,  0xf255,      0,       0x96 },
-	{ UC_WRITE,  0xf256,      0,       0x01 },
-	{ UC_WRITE,  0xf257,      0,       0x3c },
-	{ UC_WRITE,  0xf258,      0,       0x91 },
-	{ UC_WRITE,  0xf140,      0,       0x03 },
-	{ UC_WRITE,  0xf141,      0,       0x00 },
-	{ UC_WRITE,  0xf142,      0,       0x00 },
-	{ UC_WRITE,  0xf143,      0,       0x10 },
-	{ UC_WRITE,  0xf144,      0,       0x00 },
-	{ UC_WRITE,  0xf145,      0,       0x0e },
-	{ UC_WRITE,  0xf146,      0,       0x1a },
-	{ UC_WRITE,  0xf147,      0,       0x10 },
-	{ UC_WRITE,  0xf148,      0,       0x00 },
-	{ UC_WRITE,  0xf149,      0,       0x0e },
-	{ UC_WRITE,  0xf14a,      0,       0x1a },
-	{ UC_WRITE,  0xf1d9,      0,       0x43 },
-	{ UC_WRITE,  0xf1da,      0,       0xd3 },
-	{ UC_WRITE,  0xf1db,      0,       0x3f },
-	{ UC_WRITE,  0xf1dc,      0,       0xeb },
-	{ UC_WRITE,  0xf14b,      0,       0x00 },
-	{ UC_WRITE,  0xf14c,      0,       0x44 },
-	{ UC_WRITE,  0xf153,      0,       0x01 },
-	{ UC_WRITE,  0xf0b2,      0,       0xff },
-	{ UC_WRITE,  0xf0b3,      0,       0x66 },
-	{ UC_WRITE,  0xf0b4,      0,       0x00 },
-	{ UC_WRITE,  0xf0b5,      0,       0xbc },
-	{ UC_WRITE,  0xf0b0,      0,       0xff },
-	{ UC_WRITE,  0xf0b1,      0,       0x6c },
-	{ UC_WRITE,  0xf154,      0,       0x0f },
-	{ UC_WRITE,  0xf155,      0,       0x6c },
-	{ UC_WRITE,  0xf156,      0,       0x59 },
-	{ UC_WRITE,  0xf157,      0,       0x13 },
-	{ UC_WRITE,  0xf158,      0,       0xea },
-	{ UC_WRITE,  0xf159,      0,       0x7f },
-	{ UC_WRITE,  0xf15a,      0,       0xb4 },
-	{ UC_WRITE,  0xf15b,      0,       0x49 },
-	{ UC_WRITE,  0xf15c,      0,       0x89 },
-	{ UC_WRITE,  0xf15d,      0,       0xc4 },
-	{ UC_WRITE,  0xf15e,      0,       0xe0 },
-	{ UC_WRITE,  0xf15f,      0,       0x31 },
-	{ UC_WRITE,  0xf160,      0,       0x72 },
-	{ UC_WRITE,  0xf161,      0,       0x71 },
-	{ UC_WRITE,  0xf162,      0,       0x35 },
-	{ UC_WRITE,  0xf163,      0,       0x71 },
-	{ UC_WRITE,  0xf164,      0,       0x19 },
-	{ UC_WRITE,  0xf165,      0,       0xf6 },
-	{ UC_WRITE,  0xf166,      0,       0x34 },
-	{ UC_WRITE,  0xf167,      0,       0x0e },
-	{ UC_WRITE,  0xf168,      0,       0xd1 },
-	{ UC_WRITE,  0xf169,      0,       0xbd },
-	{ UC_WRITE,  0xf16a,      0,       0x10 },
-	{ UC_WRITE,  0xf16b,      0,       0x57 },
-	{ UC_WRITE,  0xf16c,      0,       0xfc },
-	{ UC_WRITE,  0xf16d,      0,       0x82 },
-	{ UC_WRITE,  0xf16e,      0,       0x57 },
-	{ UC_WRITE,  0xf16f,      0,       0x23 },
-	{ UC_WRITE,  0xf170,      0,       0xbb },
-	{ UC_WRITE,  0xf171,      0,       0xaf },
-	{ UC_WRITE,  0xf172,      0,       0xdd },
-	{ UC_WRITE,  0xf173,      0,       0x75 },
-	{ UC_WRITE,  0xf174,      0,       0x76 },
-	{ UC_WRITE,  0xf175,      0,       0x28 },
-	{ UC_WRITE,  0xf176,      0,       0xa4 },
-	{ UC_WRITE,  0xf177,      0,       0x01 },
-	{ UC_WRITE,  0xf178,      0,       0x00 },
-	{ UC_WRITE,  0xf179,      0,       0xd9 },
-	{ UC_WRITE,  0xf17a,      0,       0x4d },
-	{ UC_WRITE,  0xf17b,      0,       0x03 },
-	{ UC_WRITE,  0xf17c,      0,       0x80 },
-	{ UC_WRITE,  0xf17d,      0,       0x6d },
-	{ UC_WRITE,  0xf17e,      0,       0x1f },
-	{ UC_WRITE,  0xf17f,      0,       0x00 },
-	{ UC_WRITE,  0xf181,      0,       0x04 },
-	{ UC_WRITE,  0xf182,      0,       0x08 },
-	{ UC_WRITE,  0xf183,      0,       0x00 },
-	{ UC_WRITE,  0xf184,      0,       0x0f },
-	{ UC_WRITE,  0xf185,      0,       0x09 },
-	{ UC_WRITE,  0xf186,      0,       0x43 },
-	{ UC_WRITE,  0xf187,      0,       0x6e },
-	{ UC_WRITE,  0xf188,      0,       0x89 },
-	{ UC_WRITE,  0xf189,      0,       0x56 },
-	{ UC_WRITE,  0xf18a,      0,       0x73 },
-	{ UC_WRITE,  0xf18b,      0,       0x33 },
-	{ UC_WRITE,  0xf18c,      0,       0xa8 },
-	{ UC_WRITE,  0xf190,      0,       0x08 },
-	{ UC_WRITE,  0xf191,      0,       0x0c },
-	{ UC_WRITE,  0xf192,      0,       0x18 },
-	{ UC_WRITE,  0xf194,      0,       0x00 },
-	{ UC_WRITE,  0xf195,      0,       0x03 },
-	{ UC_WRITE,  0xf196,      0,       0x06 },
-	{ UC_WRITE,  0xf197,      0,       0x08 },
-	{ UC_WRITE,  0xf198,      0,       0x10 },
-	{ UC_WRITE,  0xf19a,      0,       0x06 },
-	{ UC_WRITE,  0xf19b,      0,       0x00 },
-	{ UC_WRITE,  0xf19c,      0,       0x0f },
-	{ UC_WRITE,  0xf1e4,      0,       0x00 },
-	{ UC_WRITE,  0xf1e3,      0,       0x00 },
-	{ UC_WRITE,  0xf1a3,      0,       0x0a },
-	{ UC_WRITE,  0xf1a5,      0,       0x4a },
-	{ UC_WRITE,  0xf1a6,      0,       0x5a },
-	{ UC_WRITE,  0xf1a7,      0,       0x0a },
-	{ UC_WRITE,  0xf1a8,      0,       0x09 },
-	{ UC_WRITE,  0xf1a9,      0,       0x0f },
-	{ UC_WRITE,  0xf1aa,      0,       0x58 },
-	{ UC_WRITE,  0xf1ab,      0,       0x1e },
-	{ UC_WRITE,  0xf1ac,      0,       0xb0 },
-	{ UC_WRITE,  0xf1ad,      0,       0xf9 },
-	{ UC_WRITE,  0xf1ae,      0,       0xdd },
-	{ UC_WRITE,  0xf1af,      0,       0x06 },
-	{ UC_WRITE,  0xf1b0,      0,       0x23 },
-	{ UC_WRITE,  0xf1b1,      0,       0xf0 },
-	{ UC_WRITE,  0xf1b2,      0,       0xa8 },
-	{ UC_WRITE,  0xf1b3,      0,       0x0f },
-	{ UC_WRITE,  0xf1b4,      0,       0x58 },
-	{ UC_WRITE,  0xf1b5,      0,       0xd9 },
-	{ UC_WRITE,  0xf1b6,      0,       0xa3 },
-	{ UC_WRITE,  0xf1b7,      0,       0x13 },
-	{ UC_WRITE,  0xf1b8,      0,       0xf3 },
-	{ UC_WRITE,  0xf1b9,      0,       0x05 },
-	{ UC_WRITE,  0xf1ba,      0,       0x0f },
-	{ UC_WRITE,  0xf1bc,      0,       0x40 },
-	{ UC_WRITE,  0xf1e1,      0,       0x12 },
-	{ UC_WRITE,  0xf1bd,      0,       0x04 },
-	{ UC_WRITE,  0xf1be,      0,       0x9a },
-	{ UC_WRITE,  0xf1d5,      0,       0x45 },
-	{ UC_WRITE,  0xf1d6,      0,       0x20 },
-	{ UC_WRITE,  0xf1d7,      0,       0x66 },
-	{ UC_WRITE,  0xf1bf,      0,       0x4c },
-	{ UC_WRITE,  0xf1c0,      0,       0x3d },
-	{ UC_WRITE,  0xf1c1,      0,       0x30 },
-	{ UC_WRITE,  0xf1c2,      0,       0x31 },
-	{ UC_WRITE,  0xf1c3,      0,       0x13 },
-	{ UC_WRITE,  0xf1c4,      0,       0x15 },
-	{ UC_WRITE,  0xf1c5,      0,       0x10 },
-	{ UC_WRITE,  0xf1c6,      0,       0x02 },
-	{ UC_WRITE,  0xf1c7,      0,       0x14 },
-	{ UC_WRITE,  0xf1c9,      0,       0x84 },
-	{ UC_WRITE,  0xf1d8,      0,       0x0e },
-	{ UC_WRITE,  0xf1ca,      0,       0xff },
-	{ UC_WRITE,  0xf1cb,      0,       0x20 },
-	{ UC_WRITE,  0xf1cd,      0,       0x10 },
-	{ UC_WRITE,  0xf1ce,      0,       0x21 },
-	{ UC_WRITE,  0xf1d3,      0,       0x04 },
-	{ UC_WRITE,  0xf1e2,      0,       0x05 },
-	{ UC_WRITE,  0xf1d4,      0,       0x39 },
-	{ UC_WRITE,  0xf19d,      0,       0x04 },
-	{ UC_WRITE,  0xf19e,      0,       0xd9 },
-	{ UC_WRITE,  0xf1e5,      0,       0x02 },
-	{ UC_WRITE,  0xf1e6,      0,       0x03 },
-	{ UC_WRITE,  0xf1e7,      0,       0x00 },
-	{ UC_WRITE,  0xf1e8,      0,       0x00 },
-	{ UC_WRITE,  0xf1e9,      0,       0x02 },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x0c },
-	{ UC_WRITE,  0xf1ef,      0,       0x10 },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x0e },
-	{ UC_WRITE,  0xf1ef,      0,       0x11 },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x13 },
-	{ UC_WRITE,  0xf1ef,      0,       0x12 },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x1a },
-	{ UC_WRITE,  0xf1ef,      0,       0x13 },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x25 },
-	{ UC_WRITE,  0xf1ef,      0,       0x14 },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x32 },
-	{ UC_WRITE,  0xf1ef,      0,       0x15 },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x40 },
-	{ UC_WRITE,  0xf1ef,      0,       0x16 },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x50 },
-	{ UC_WRITE,  0xf1ef,      0,       0x17 },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x60 },
-	{ UC_WRITE,  0xf1ef,      0,       0x18 },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x70 },
-	{ UC_WRITE,  0xf1ef,      0,       0x19 },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x7e },
-	{ UC_WRITE,  0xf1ef,      0,       0x1a },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x8c },
-	{ UC_WRITE,  0xf1ef,      0,       0x1b },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x97 },
-	{ UC_WRITE,  0xf1ef,      0,       0x1c },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x9f },
-	{ UC_WRITE,  0xf1ef,      0,       0x1d },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0xa4 },
-	{ UC_WRITE,  0xf1ef,      0,       0x1e },
-	{ UC_WRITE,  0xf1ec,      0,       0x00 },
-	{ UC_WRITE,  0xf1ed,      0,       0x53 },
-	{ UC_WRITE,  0xf1ef,      0,       0x1f },
-	{ UC_WRITE,  0x0017,      0,       0xd0 },
-	{ UC_WRITE,  0xf157,      0,       0x09 },
-	{ UC_WRITE,  0xf158,      0,       0xeb },
-	{ UC_WRITE,  0xf159,      0,       0x08 },
-	{ UC_WRITE,  0xf15a,      0,       0x97 },
-	{ UC_WRITE,  0xf15b,      0,       0x67 },
-	{ UC_WRITE,  0xf15c,      0,       0x02 },
-	{ UC_WRITE,  0xf15d,      0,       0x2b },
-	{ UC_WRITE,  0xf15e,      0,       0x27 },
-	{ UC_WRITE,  0xf15f,      0,       0x14 },
-	{ UC_WRITE,  0xf160,      0,       0x7f },
-	{ UC_WRITE,  0xf161,      0,       0x13 },
-	{ UC_WRITE,  0xf162,      0,       0x82 },
-	{ UC_WRITE,  0xf163,      0,       0x7a },
-	{ UC_WRITE,  0xf164,      0,       0x94 },
-	{ UC_WRITE,  0xf165,      0,       0x65 },
-	{ UC_WRITE,  0xf166,      0,       0xc8 },
-	{ UC_WRITE,  0xf167,      0,       0x07 },
-	{ UC_WRITE,  0xf168,      0,       0x66 },
-	{ UC_WRITE,  0xf169,      0,       0x81 },
-	{ UC_WRITE,  0xf16a,      0,       0x70 },
-	{ UC_WRITE,  0xf16b,      0,       0x6d },
-	{ UC_WRITE,  0xf16c,      0,       0x46 },
-	{ UC_WRITE,  0xf16d,      0,       0xd3 },
-	{ UC_WRITE,  0xf16e,      0,       0xf2 },
-	{ UC_WRITE,  0xf16f,      0,       0x0f },
-	{ UC_WRITE,  0xf170,      0,       0x68 },
-	{ UC_WRITE,  0xf171,      0,       0xde },
-	{ UC_WRITE,  0xf172,      0,       0xeb },
-	{ UC_WRITE,  0xf173,      0,       0x7b },
-	{ UC_WRITE,  0xf174,      0,       0xe9 },
-	{ UC_WRITE,  0xf175,      0,       0xe4 },
-	{ UC_WRITE,  0xf176,      0,       0x09 },
-	{ UC_WRITE,  0xf177,      0,       0x00 },
-	{ UC_WRITE,  0xf178,      0,       0xf2 },
-	{ UC_WRITE,  0xf0b4,      0,       0x00 },
-	{ UC_WRITE,  0xf0b5,      0,       0xb9 },
-	{ UC_WRITE,  0xf179,      0,       0xd1 },
-	{ UC_WRITE,  0xf17a,      0,       0x84 },
-	{ UC_WRITE,  0xf0b2,      0,       0xff },
-	{ UC_WRITE,  0xf0b3,      0,       0x6c },
-	{ UC_WRITE,  0xf154,      0,       0x0f },
-	{ UC_WRITE,  0xf155,      0,       0x2b },
-	{ UC_WRITE,  0xf1ba,      0,       0x0e },
-	{ UC_WRITE,  0xf1bc,      0,       0x17 },
-	{ UC_WRITE,  0xfb33,      0,       0x00 },
-	{ UC_WRITE,  0xfb34,      0,       0xb1 },
-	{ UC_WRITE,  0xf156,      0,       0x40 },
-	{ UC_WRITE,  0xf0ba,      0,       0x00 },
-	{ UC_WRITE,  0xf101,      0,       0x04 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf0a0,      0,       0x01 },
-	{ UC_WRITE,  0xf0a1,      0,       0x02 },
-	{ UC_WRITE,  0xf0a2,      0,       0x00 },
-	{ UC_WRITE,  0xf09f,      0,       0x9c },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf09c,      0,       0x9c },
-	{ UC_WRITE,  0xf09c,      0,       0x00 },
-	{ UC_READ,   0xf09f,      0,       0x1c },
-	{ UC_WRITE,  0xf092,      0,       0x00 },
-	{ UC_WRITE,  0xf090,      0,       0x10 },
-	{ UC_WRITE,  0xf201,      0,       0x11 },
-	{ UC_WRITE,  0xf202,      0,       0x45 },
-	{ UC_WRITE,  0xf203,      0,       0x60 },
-	{ UC_WRITE,  0xf209,      0,       0x21 },
-	{ UC_WRITE,  0xf20a,      0,       0x1f },
-	{ UC_WRITE,  0xf20b,      0,       0xd5 },
-	{ UC_WRITE,  0xf200,      0,       0x00 },
-	{ REG_SLEEP,      0,      0,         10 },
-	{ UC_READ,   0xf091,      0,       0x10 },
-	{ UC_WRITE,  0xf063,      0,       0x01 },
-	{ UC_WRITE,  0xf101,      0,       0x04 },
-	{ UC_WRITE,  0xf504,      0,       0x20 },
-	{ UC_WRITE,  0xf505,      0,       0xa0 },
-	{ UC_READ,   0xf090,      0,       0x10 },
-	{ UC_READ,   0xf092,      0,       0x00 },
-	{ UC_READ,   0xf091,      0,       0x10 },
-	{ UC_READ,   0xf118,      0,       0x6a },
-	{ UC_READ,   0xf119,      0,       0x7c },
-	{ UC_READ,   0xf11a,      0,       0x6f },
-	{ UC_READ,   0xf11b,      0,       0x1d },
-	{ UC_READ,   0xf11c,      0,       0x73 },
-	{ UC_READ,   0xf11d,      0,       0x51 },
-	{ UC_READ,   0xf124,      0,       0xc5 },
-	{ UC_READ,   0xf125,      0,       0x45 },
-	{ UC_READ,   0xf238,      0,       0x00 },
-	{ UC_READ,   0xf239,      0,       0x00 },
-	{ UC_READ,   0xf23a,      0,       0x00 },
-	{ UC_READ,   0xf23b,      0,       0x00 },
-	{ UC_READ,   0xf33b,      0,       0x00 },
-	{ UC_READ,   0xf33c,      0,       0x00 },
-	{ UC_READ,   0xf33d,      0,       0x00 },
-	{ UC_READ,   0xf33e,      0,       0x00 },
-	{ UC_READ,   0xf090,      0,       0x10 },
-	{ UC_READ,   0xf092,      0,       0x00 },
-	{ UC_READ,   0xf091,      0,       0x10 },
-	{ UC_READ,   0xf118,      0,       0x90 },
-	{ UC_READ,   0xf119,      0,       0x71 },
-	{ UC_READ,   0xf11a,      0,       0x93 },
-	{ UC_READ,   0xf11b,      0,       0xcf },
-	{ UC_READ,   0xf11c,      0,       0x97 },
-	{ UC_READ,   0xf11d,      0,       0x40 },
-	{ UC_READ,   0xf124,      0,       0xae },
-	{ UC_READ,   0xf125,      0,       0x50 },
-	{ UC_READ,   0xf238,      0,       0x00 },
-	{ UC_READ,   0xf239,      0,       0x00 },
-	{ UC_READ,   0xf23a,      0,       0x00 },
-	{ UC_READ,   0xf23b,      0,       0x00 },
-	{ UC_READ,   0xf33b,      0,       0x00 },
-	{ UC_READ,   0xf33c,      0,       0x00 },
-	{ UC_READ,   0xf33d,      0,       0x00 },
-	{ UC_READ,   0xf33e,      0,       0x00 },
-	{ UC_READ,   0xf091,      0,       0x10 },
-	{ UC_READ,   0xf091,      0,       0x10 },
-	{ UC_READ,   0xf201,      0,       0x11 },
-	{ UC_READ,   0xf202,      0,       0x45 },
-	{ UC_READ,   0xf203,      0,       0x60 },
-	{ UC_READ,   0xf204,      0,       0x00 },
-	{ UC_READ,   0xf205,      0,       0x00 },
-
-	{ .op = MAX_REG_OP },
-}; // ati_00.pcap 53902, ati_00_array.txt 13308
-
-void
-tvwsdr_msleep(int msecs) {
-	struct timespec ts;
-
-	ts.tv_sec = 0;
-	ts.tv_nsec = msecs * 1000 * 1000;
-
-	nanosleep(&ts, NULL);
-}
-
-int
-tvwsdr_read_reg(tvwsdr_dev_t *dev, uint16_t reg, uint16_t page, void *buf, uint16_t len) {
-	int ret, n_read;
-	uint16_t flags = 0x0000, len_le, rlen = len;
-	unsigned char tmpbuf[12] = {0};
-
-	/* ugly hack for one register read following the firmware upload */
-	if (reg == 0x0000 && page == 0x8000 && len == 0x0000) {
-		flags = 0xbfc1;
-		rlen = 4;
-	}
-
-	reg = htole16(reg);
-	page = htole16(page);
-	len_le = htole16(len);
-	flags = htole16(flags);
-	memcpy(tmpbuf + 0, &reg, 2);
-	memcpy(tmpbuf + 2, &page, 2);
-	memcpy(tmpbuf + 4, &len_le, 2);
-	memcpy(tmpbuf + 6, &flags, 2);
-	tmpbuf[7] |= (1 << 7);
-	reg = ~reg;
-	page = ~page;
-	memcpy(tmpbuf + 8, &reg, 2);
-	memcpy(tmpbuf + 10, &page, 2);
-
-	/* write offset */
-	ret = libusb_bulk_transfer(dev->devh, 0x03, tmpbuf, 12, &n_read, BULK_TIMEOUT);
-	if (ret) {
-		return ret;
-	}
-
-	/* read data */
-	ret = libusb_bulk_transfer(dev->devh, 0x82, buf, rlen, &n_read, BULK_TIMEOUT);
-
-	return ret;
-}
-
-int
-tvwsdr_write_reg(tvwsdr_dev_t *dev, uint16_t reg, uint16_t page, void *buf, uint16_t len) {
-	int ret, n_read;
-	uint16_t len_le;
-	unsigned char tmpbuf[12] = {0};
-
-	reg = htole16(reg);
-	page = htole16(page);
-	len_le = htole16(len);
-	memcpy(tmpbuf + 0, &reg, 2);
-	memcpy(tmpbuf + 2, &page, 2);
-	memcpy(tmpbuf + 4, &len_le, 2);
-	tmpbuf[7] |= (0 << 7);
-	reg = ~reg;
-	page = ~page;
-	memcpy(tmpbuf + 8, &reg, 2);
-	memcpy(tmpbuf + 10, &page, 2);
-
-	/* write offset */
-	ret = libusb_bulk_transfer(dev->devh, 0x03, tmpbuf, 12, &n_read, BULK_TIMEOUT);
-	if (ret) {
-		return ret;
-	}
-
-	/* write data */
-	ret = libusb_bulk_transfer(dev->devh, 0x03, buf, len, &n_read, BULK_TIMEOUT);
-
-	return ret;
-}
-
-int
-tvwsdr_wait_bits(tvwsdr_dev_t *dev, uint16_t reg, uint16_t page, uint32_t mask, uint32_t val, int msec, int loop) {
-	int count;
-	uint32_t rval;
-
-	for(count = 0; count < loop; count++) {
-		if (tvwsdr_read_reg(dev, reg, page, &rval, sizeof(rval))) {
-			return -1;
-		}
-		rval = le32toh(rval);
-		if ((rval & mask) == val) {
-			return 0;
-		}
-		tvwsdr_msleep(msec);
-	}
-
-	return -1;
-}
-
-int
-tvwsdr_run_reg_cmds(tvwsdr_dev_t *dev, struct tvwsdr_reg_cmd *cmds) {
-	int ret;
-	size_t off = 0;
-	uint16_t wval;
-	uint32_t val;
-	unsigned char buf[16];
-
-	while(cmds[off].op != MAX_REG_OP) {
-		switch(cmds[off].op) {
-		case REG_READ:
-			ret = tvwsdr_read_reg(dev, cmds[off].reg, cmds[off].page, buf, 4);
-			if (ret) {
-				return ret;
-			}
-			memcpy(&val, buf, 4);
-			val = le32toh(val);
-			printf("R %04x/%04x %08x (%c %08x)\n",
-				cmds[off].reg, cmds[off].page, cmds[off].val,
-				val == cmds[off].val ? 'Y' : 'N', val);
-			break;
-
-		case REG_WRITE:
-			val = htole32(cmds[off].val);
-			memcpy(buf, &val, 4);
-			ret = tvwsdr_write_reg(dev, cmds[off].reg, cmds[off].page, buf, 4);
-			if (ret) {
-				return ret;
-			}
-			printf("W %04x/%04x %08x\n",
-				cmds[off].reg, cmds[off].page, cmds[off].val);
-			break;
-
-		case REG_SLEEP:
-			tvwsdr_msleep(cmds[off].val);
-			break;
-
-		case UC_READ:
-			buf[0] = 0x00;
-			buf[1] = cmds[off].reg & 0xff;
-			buf[2] = cmds[off].reg >> 8;
-			buf[3] = 0x40;
-			ret = tvwsdr_write_reg(dev, 0x4400, 0x2000, buf, 4);
-			if (ret) {
-				return ret;
-			}
-			ret = tvwsdr_read_reg(dev, 0x4400, 0x2000, buf, 4);
-			if (ret) {
-				return ret;
-			}
-			val = buf[0] & 0xff;
-			printf("uR %04x %02x (%c %02x)\n",
-				cmds[off].reg, cmds[off].val & 0xff,
-				val == cmds[off].val ? 'Y' : 'N', val & 0xff);
-			break;
-
-		case UC_WRITE:
-			buf[0] = cmds[off].val & 0xff;
-			buf[1] = cmds[off].reg & 0xff;
-			buf[2] = cmds[off].reg >> 8;
-			buf[3] = 0x80;
-			ret = tvwsdr_write_reg(dev, 0x4400, 0x2000, buf, 4);
-			if (ret) {
-				return ret;
-			}
-			printf("uW %04x %02x\n",
-				cmds[off].reg, cmds[off].val & 0xff);
-			break;
-
-		case E0_MAGIC:
-			ret = tvwsdr_read_reg(dev, 0xe000, 0x1000, buf, 4);
-			if (ret) {
-				return ret;
-			}
-			val = htole32(cmds[off].val);
-			memcpy(buf, &val, 4);
-			wval = htole16(cmds[off].page);
-			memcpy(buf + 4, &wval, 2);
-			wval = htole16(cmds[off].reg);
-			memcpy(buf + 6, &wval, 2);
-			memset(buf + 8, 0, 8);
-			ret = tvwsdr_write_reg(dev, 0xe000, 0x1000, buf, 16);
-			if (ret) {
-				return ret;
-			}
-			printf("eW %08x%08x\n", *((uint32_t *)(buf + 4)), val);
-
-			ret = tvwsdr_read_reg(dev, 0xe010, 0x1000, buf, 16);
-			if (ret) {
-				return ret;
-			}
-			printf("eR %08x%08x\n",
-				*((uint32_t *)(buf + 4)), *((uint32_t *)buf));
-			memset(buf, 0, 4);
-			ret = tvwsdr_write_reg(dev, 0xe010, 0x1000, buf, 4);
-			if (ret) {
-				return ret;
-			}
-
-			break;
-
-		default:
-			break;
-		}
-
-		off++;
-	}
-
-	return 0;
-}
-
-int
-tvwsdr_load_fw(tvwsdr_dev_t *dev, const char *fn) {
-	char *buf;
-	int fd;
-	size_t flen, fpos;
-	ssize_t rret;
-	struct stat fileinfo;
-	uint16_t wlen;
-
-	fd = open(fn, O_RDONLY);
-	if (fd < 0) {
-		warn("failed to open %s", fn);
-		return -1;
-	}
-
-	if (fstat(fd, &fileinfo)) {
-		warn("failed to stat fd");
-		return -1;
-	}
-
-	if (fileinfo.st_size <= 0) {
-		warnx("invalid file size");
-		return -1;
-	}
-
-	flen = (size_t)fileinfo.st_size;
-	if (NULL == (buf = malloc(flen))) {
-		warn("failed to allocate file buffer");
-		return -1;
-	}
-
-	rret = read(fd, buf, flen);
-	if (rret < 0 || (size_t)rret != flen) {
-		warn("failed to read file");
-		free(buf);
-		return -1;
-	}
-
-	for(fpos = 0; fpos < flen; fpos += 512) {
-		if (flen < 512 || flen - 512 < fpos) {
-			wlen = flen - fpos;
-		}
-		else {
-			wlen = 512;
-		}
-		if (tvwsdr_write_reg(dev, (uint16_t)fpos, 0x1001, buf + fpos, wlen)) {
-			warnx("failed firmware transfer at 0x%04x", (uint16_t)fpos);
-			free(buf);
-			return -1;
-		}
-		if (flen - fpos == 512) {
-			/* according to the USB spec, we need to send a 0 byte packet
-			 * to terminate the transmission
-			 */
-			/* FIXME */
-		}
-	}
-
-	free(buf);
-
-	return 0;
-}
-
-int
-tvwsdr_read_i2c(tvwsdr_dev_t *dev, unsigned char *outbuf, uint8_t len) {
-	uint8_t addr, count;
-	uint32_t ctrl, tmpbuf;
-
-	/* address discovery? */
-	ctrl = ((0x0811 << TVW_I2C_PRESCALE_SHIFT) |
-	        TVW_I2C_DONE |
-	        TVW_I2C_NACK |
-	        TVW_I2C_HALT |
-	        TVW_I2C_SOFT_RST |
-	        TVW_I2C_DRIVE_EN |
-	        TVW_I2C_DRIVE_SEL |
-	        TVW_I2C_START |
-	        TVW_I2C_RECEIVE |
-	        0);
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	ctrl = 0;
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	/* read discovered address? */
-	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-	addr = (uint8_t)ctrl;
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	/* write transaction length */
-	ctrl = (((len > 30 ? 30 : len) << TVW_I2C_DATA_COUNT_SHIFT) |
-	        0x0100 |
-	        (0x10 << TVW_I2C_TIME_LIMIT_SHIFT) |
-	        0);
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	/* write i2c address with "read" bit set */
-	ctrl = addr | 1;
-	if (tvwsdr_write_reg(dev, TVW_I2C_DATA, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-	ctrl |= TVW_I2C_GO;
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	/* wait for i2c ready? */
-	if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
-		return -1;
-	}
-
-	for(count = 0; count < len; count++) {
-		if (count && count % 30 == 0) {
-			/* ??? */
-			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			ctrl &= ~TVW_I2C_START;
-			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_0, 0x2000, TVW_I2C_DONE, 0, 10, 100)) {
-				return -1;
-			}
-
-			/* ??? */
-			ctrl |= TVW_I2C_STOP;
-			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-
-			/* ??? */
-			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			ctrl &= ~0x0100;
-			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_1, 0x2000, 0x0100, 0, 10, 100)) {
-				return -1;
-			}
-
-			/* write remaining length */
-			ctrl |= (len - count > 30 ? 30 : len - count);
-			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-
-			/* ??? */
-			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			ctrl |= TVW_I2C_GO;
-			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
-				return -1;
-			}
-		}
-
-		if (tvwsdr_read_reg(dev, TVW_I2C_DATA, 0x2000, &tmpbuf, 4)) {
-			return -1;
-		}
-		outbuf[count] = tmpbuf & 0xff;
-	}
-
-	return 0;
-}
-
-int
-tvwsdr_write_i2c(tvwsdr_dev_t *dev, unsigned char *wrbuf, uint8_t len) {
-	uint8_t addr, count;
-	uint32_t ctrl, tmpbuf;
-
-	/* address discovery? */
-	ctrl = ((0x0811 << TVW_I2C_PRESCALE_SHIFT) |
-	        TVW_I2C_DONE |
-	        TVW_I2C_NACK |
-	        TVW_I2C_HALT |
-	        TVW_I2C_SOFT_RST |
-	        TVW_I2C_DRIVE_EN |
-	        TVW_I2C_DRIVE_SEL |
-	        TVW_I2C_START |
-	        0);
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	/* ??? */
-	ctrl = 0;
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-	ctrl = ((0x10 << TVW_I2C_TIME_LIMIT_SHIFT) |
-	        0);
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	/* read discovered address? */
-	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-	addr = (uint8_t)ctrl;
-	if (len <= 29) {
-		ctrl |= TVW_I2C_STOP;
-	}
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	/* ??? */
-	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-	ctrl &= ~0x0000ff00;
-	ctrl |= 0x00000100;
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	/* write transaction length */
-	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-	ctrl |= (len > 29 ? 29 : len);
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	/* write chip address */
-	ctrl = addr;
-	if (tvwsdr_write_reg(dev, TVW_I2C_DATA, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-
-	tmpbuf = 0;
-	for(count = 0; count < len; count++) {
-		if (count && count % 29 == 0) {
-			/* ??? */
-			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			ctrl |= TVW_I2C_GO;
-			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
-				return -1;
-			}
-
-			/* ??? */
-			ctrl |= TVW_I2C_DONE | TVW_I2C_NACK | TVW_I2C_HALT;
-			ctrl &= ~0x0000ff00;
-			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			ctrl |= TVW_I2C_STOP;
-			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-
-			/* ??? */
-			if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			ctrl &= ~0x0100;
-			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-			if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_1, 0x2000, 0x0100, 0, 10, 100)) {
-				return -1;
-			}
-
-			/* write remaining length */
-			ctrl |= (len - count > 29 ? 29 : len - count);
-			if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_1, 0x2000, &ctrl, 4)) {
-				return -1;
-			}
-		}
-
-		tmpbuf = wrbuf[count];
-		if (tvwsdr_write_reg(dev, TVW_I2C_DATA, 0x2000, &tmpbuf, 4)) {
-			return -1;
-		}
-	}
-
-	/* ??? */
-	if (tvwsdr_read_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-	ctrl |= TVW_I2C_GO;
-	if (tvwsdr_write_reg(dev, TVW_I2C_CNTL_0, 0x2000, &ctrl, 4)) {
-		return -1;
-	}
-	/* wait for i2c ready? */
-	if (tvwsdr_wait_bits(dev, TVW_I2C_CNTL_0, 0x2000, TVW_I2C_GO, 0, 10, 100)) {
-		return -1;
-	}
-
-	return 0;
-}
-
-/* This function takes advantage of the fact that subaddress 0 is never written.
- * Instead, the array position before the desired subaddress is swapped out with
- * the subaddress value and written according to the datasheet.  Afterwards, the
- * old value is restored.
- */
-int
-tvwsdr_write_tda18271(tvwsdr_dev_t *dev, unsigned char *wrbuf, uint8_t startaddr, uint8_t endaddr) {
-	int ret;
-	uint8_t len;
-	unsigned char tmp;
-
-	len = endaddr - startaddr + 1;
-
-	tmp = wrbuf[startaddr - 1];
-	wrbuf[startaddr - 1] = (unsigned char)startaddr;
-	ret = tvwsdr_write_i2c(dev, wrbuf + startaddr - 1, len + 1);
-	wrbuf[startaddr - 1] = tmp;
-
-	return ret;
-}
-
-int
-tvwsdr_init(tvwsdr_dev_t *dev) {
-	int ret;
 	unsigned char buf[39];
-	unsigned int i;
-
-	printf("Running init 1...\n");
-	ret = tvwsdr_run_reg_cmds(dev, tvw_init1);
-	if (ret) {
-		printf("failed to init(1) device: %i\n", ret);
-		return -1;
-	}
-
-	printf("Uploading first firmware...\n");
-	ret = tvwsdr_load_fw(dev, "CTRLT507-fixed.bin");
-	if (ret) {
-		printf("failed to load firmware\n");
-		return -1;
-	}
-
-	if (tvwsdr_read_reg(dev, 0x200c, 0x2000, buf, 4)) {
-		printf("failed to read 0x200c\n");
-		return -1;
-	}
-	if (tvwsdr_write_reg(dev, 0x200c, 0x2000, buf, 4)) {
-		printf("failed to write 0x200c\n");
-		return -1;
-	}
-
-	/* this register read doesn't follow the pattern of the rest... */
-	if (tvwsdr_read_reg(dev, 0x0000, 0x8000, buf, 0)) {
-		printf("failed to do odd register read\n");
-		return -1;
-	}
-
-	printf("Running init 2...\n");
-	ret = tvwsdr_run_reg_cmds(dev, tvw_init2);
-	if (ret) {
-		printf("failed to init(2) device: %i\n", ret);
-		return -1;
-	}
-
-	/* SPI? */
-
-	/* switch to bAlternateSetting 1 */
-	if (libusb_set_interface_alt_setting(dev->devh, 0, 1)) {
-		printf("failed to set alternate setting 1\n");
-		return -1;
-	}
-
-	printf("Running init 3...\n");
-	ret = tvwsdr_run_reg_cmds(dev, tvw_init3);
-	if (ret) {
-		printf("failed to init(3) device: %i\n", ret);
-		return -1;
-	}
-
-	printf("Uploading second firmware...\n");
-	ret = tvwsdr_load_fw(dev, "T507.bin");
-	if (ret) {
-		printf("failed to load firmware\n");
-		return -1;
-	}
-
-	/* XXX make into function */
-	if (tvwsdr_read_reg(dev, 0xe000, 0x1000, buf, 4)) {
-		printf("failed to read 0xe000\n");
-		return -1;
-	}
-
-	// 0x1301000001001a8e0000000000000000 
-	memset(buf, 0, sizeof(buf));
-	buf[0] = 0x13;
-	buf[1] = 0x01;
-	buf[4] = 0x01;
-	/* 0x8e1a is T507.bin fw size */
-	buf[6] = 0x1a;
-	buf[7] = 0x8e;
-	if (tvwsdr_write_reg(dev, 0xe000, 0x1000, buf, 16)) {
-		printf("failed to write 0xe000\n");
-		return -1;
-	}
-
-	sleep(1);
-
-	if (tvwsdr_read_reg(dev, 0xe010, 0x1000, buf, 16)) {
-		printf("failed to read 0xe010\n");
-		return -1;
-	}
-
-	memset(buf, 0, 4);
-	if (tvwsdr_write_reg(dev, 0xe010, 0x1000, buf, 4)) {
-		printf("failed to write 0xe010\n");
-		return -1;
-	}
-
-	printf("Running init 4...\n");
-	ret = tvwsdr_run_reg_cmds(dev, tvw_init4);
-	if (ret) {
-		printf("failed to init(4) device: %i\n", ret);
-		return -1;
-	}
-
-	/* tuner config over I2C */
-	printf("Configuring tuner...\n");
-	dev->fe.frontend_priv = dev;
-	tda18271_attach(&dev->fe, 0, NULL, NULL);
-	if (tvwsdr_read_i2c(dev, buf, sizeof(buf))) {
-		printf("failed to read i2c data\n");
-		return -1;
-	}
-	for(i = 0; i < sizeof(buf); i++) {
-		printf("i2c[0x%02x] = 0x%02x\n", i, buf[i]);
-	}
-
-	printf("Running init 5...\n");
-	ret = tvwsdr_run_reg_cmds(dev, tvw_init5);
-	if (ret) {
-		printf("failed to init(5) device: %i\n", ret);
-		return -1;
-	}
-
-	printf("Running init 6...\n");
-	ret = tvwsdr_run_reg_cmds(dev, tvw_init6);
-	if (ret) {
-		printf("failed to init(6) device: %i\n", ret);
-		return -1;
-	}
-
-	if (tda18271_tune(&dev->fe, &(((struct tda18271_priv *)dev->fe.tuner_priv)->std.qam_8), 853500000, 8000000)) {
-		printf("failed to tune\n");
-		return -1;
-	}
-
-	return 0;
-}
-
-int
-tvwsdr_init7(tvwsdr_dev_t *dev) {
-	int ret;
-
-	printf("Running init 7...\n");
-	ret = tvwsdr_run_reg_cmds(dev, tvw_init7);
-	if (ret) {
-		printf("failed to init(7) device: %i\n", ret);
-		return -1;
-	}
-
-	return 0;
-}
-
-int
-tvwsdr_open(tvwsdr_dev_t **out_dev) {
 	tvwsdr_dev_t *dev = NULL;
 
 	dev = malloc(sizeof(tvwsdr_dev_t));
@@ -6037,19 +2276,276 @@ tvwsdr_open(tvwsdr_dev_t **out_dev) {
 
 	dev->devh = libusb_open_device_with_vid_pid(dev->ctx, 0x0438, 0xac14);
 	if (NULL == dev->devh) {
-		fprintf(stderr, "failed to open usb device\n");
+		warnx("failed to open usb device");
 		goto err;
 	}
 
 	if (libusb_claim_interface(dev->devh, 0)) {
-		fprintf(stderr, "failed to claim interface 0");
+		warnx("failed to claim interface 0");
 		goto err;
 	}
 
-	// XXX
-	tvwsdr_init(dev);
-	//tvwsdr_start_async();
-	tvwsdr_init7(dev);
+	// set up T507
+	fprintf(stderr, "Running init 1...\n");
+	if (!tvw_init_tvw_1(dev) || !tvw_init_tvw_2(dev, 1) || !tvw_init_tvw_3(dev)) {
+		warnx("failed to init T507");
+		goto err;
+	}
+
+	fprintf(stderr, "Uploading first firmware...\n");
+	ret = tvw_load_fw(dev, "CTRLT507-fixed.bin");
+	if (ret) {
+		warnx("failed to load CTRLT507 firmware");
+		goto err;
+	}
+
+#if 1
+	if (internal_read_reg(dev, TVW_USC_CTL, 0x2000, buf, 4)) {
+		fprintf(stderr, "failed to read 0x200c\n");
+		return -1;
+	}
+	if (internal_write_reg(dev, TVW_USC_CTL, 0x2000, buf, 4)) {
+		fprintf(stderr, "failed to write 0x200c\n");
+		return -1;
+	}
+#endif
+
+	/* this register read doesn't follow the pattern of the rest... */
+	/* but it is critical! see comments in internal_read_reg */
+	/* it likely sets the MIPS base address */
+	if (internal_read_reg(dev, 0x0000, 0x8000, buf, 0)) {
+		fprintf(stderr, "failed to do odd register read\n");
+		return -1;
+	}
+
+	val = htole32(0x00000050);
+	if (internal_write_reg(dev, 0xe000, 0x1000, &val, 4)) {
+		warnx("failed to do E0 magic after firmware upload");
+		goto err;
+	}
+
+	fprintf(stderr, "Running init 2...\n");
+	if (!tvw_finish_init_tvw(dev)) {
+		warnx("failed to finish T507 init");
+		goto err;
+	}
+
+	// skip SPI
+
+	/* switch to bAlternateSetting 1 */
+	if (libusb_set_interface_alt_setting(dev->devh, 0, 1)) {
+		warnx("failed to set alternate setting 1");
+		goto err;
+	}
+
+	// set up frontend/DSP/Nxt/Xilleon/Theater/whatever it is
+	fprintf(stderr, "Running init 3...\n");
+	if (!tvw_init_8051(dev)) {
+		warnx("failed to init 8051");
+		goto err;
+	}
+
+	fprintf(stderr, "Uploading second firmware...\n");
+	ret = tvw_load_fw(dev, "T507.bin");
+	if (ret) {
+		warnx("failed to load T507 firmware");
+		goto err;
+	}
+
+	/* XXX make into function */
+	if (internal_read_reg(dev, 0xe000, 0x1000, buf, 4)) {
+		warnx("failed to read 0xe000");
+		goto err;
+	}
+
+	// 0x1301000001001a8e0000000000000000 
+	memset(buf, 0, sizeof(buf));
+	buf[0] = 0x13;
+	buf[1] = 0x01;
+	buf[4] = 0x01;
+	/* 0x8e1a is T507.bin fw size */
+	buf[6] = 0x1a;
+	buf[7] = 0x8e;
+	if (internal_write_reg(dev, 0xe000, 0x1000, buf, 16)) {
+		warnx("failed to write 0xe000");
+		goto err;
+	}
+
+	sleep(1);
+
+	if (internal_read_reg(dev, 0xe010, 0x1000, buf, 16)) {
+		warnx("failed to read 0xe010");
+		goto err;
+	}
+
+	memset(buf, 0, 4);
+	if (internal_write_reg(dev, 0xe010, 0x1000, buf, 4)) {
+		warnx("failed to write 0xe010");
+		goto err;
+	}
+
+	fprintf(stderr, "Running init 4...\n");
+	if (!tvw_finish_init_8051(dev)) {
+		warnx("failed to finish 8051 init");
+		goto err;
+	}
+
+	/* tuner config over I2C */
+	fprintf(stderr, "Configuring tuner...\n");
+	dev->fe.frontend_priv = dev;
+	tda18271_attach(&dev->fe, 0, NULL, NULL);
+
+	// init 5
+	// init 6
+	fprintf(stderr, "Running init 5...\n");
+	if (!tvw_init56_tvw(dev)) {
+		warnx("failed to do init56");
+		goto err;
+	}
+
+	// init adec
+#if 1 // XXX 0
+	fprintf(stderr, "Running init ADEC...\n");
+	if (!tvw_init_adec(dev)) {
+		warnx("failed to do init_adec 1/4");
+		goto err;
+	}
+	if (!tvw_init_adec(dev)) { // XXX not 100% match
+		warnx("failed to do init_adec 2/4");
+		goto err;
+	}
+#endif
+
+	// init unknown
+	fprintf(stderr, "Running init unknown...\n");
+	if (!tvw_init_unknown_1(dev) || !tvw_init_tvw_2(dev, 2) || !tvw_init_unknown_2(dev)) {
+		warnx("failed to do init_unknown");
+		goto err;
+	}
+
+	// init adec again?
+#if 1
+	fprintf(stderr, "Running init ADEC (again)...\n");
+	if (!tvw_init_adec(dev)) {
+		warnx("failed to do init_adec 3/4");
+		goto err;
+	}
+	if (!tvw_init_adec(dev)) { // XXX not 100% match
+		warnx("failed to do init_adec 4/4");
+		goto err;
+	}
+#endif
+
+	// enable ADEC?
+	if (!tvw_e0_magic(dev, 0x00000000, 0x00140130)) {
+		warnx("failed to do final E0 magic");
+		goto err;
+	}
+
+	// tune to freq
+	u32 bw = 0; // this is okay for analog
+	struct tda18271_std_map_item *map = &(((struct tda18271_priv *)dev->fe.tuner_priv)->std.fm_radio);
+
+	((struct tda18271_priv *)dev->fe.tuner_priv)->if_freq = map->if_freq;
+	((struct tda18271_priv *)dev->fe.tuner_priv)->frequency = freq;
+	((struct tda18271_priv *)dev->fe.tuner_priv)->bandwidth = bw;
+
+	((struct tda18271_priv *)dev->fe.tuner_priv)->mode = TDA18271_ANALOG;
+	//((struct tda18271_priv *)dev->fe.tuner_priv)->mode = TDA18271_DIGITAL;
+	if (tda18271_tune(&dev->fe, map, freq, bw)) {
+		fprintf(stderr, "failed to tune\n");
+		goto err;
+	}
+
+	// init 7
+	fprintf(stderr, "Running init 7...\n");
+#if 1 // XXX 0
+	if (!tvw_tune_tvw(dev)) {
+		warnx("failed to tune tvw 1/3");
+		goto err;
+	}
+	if (!tvw_tune_tvw(dev)) {
+		warnx("failed to tune tvw 2/3");
+		goto err;
+	}
+#endif
+
+#if 1
+	WR(dev, TVW_ADEC_RAMPING_TARGET_VOLUME, 0x00000080) &&
+	MR(dev, TVW_VBW_SETTINGS, ALL, 0x00100000) &&
+	WR(dev, TVW_SMGR_SOFT_RESETS, 0x0000002f) &&
+	WR(dev, TVW_SMGR_SOFT_RESETS, 0) &&
+	WR(dev, TVW_FEVW_HEIGHT, 0x00000120) &&
+	MR(dev, TVW_FEVW_VID_START_LINE, ALL, 0x00140014) &&
+	WR(dev, TVW_FEVW_VBI_HEIGHT, 0) &&
+	true;
+#endif
+
+	if (!tvw_tune_tvw(dev)) {
+		warnx("failed to tune tvw 3/3");
+		goto err;
+	}
+
+	WR(dev, TVW_DRS_CONTROL, 0x00000012) &&
+	MR(dev, TVW_SMGR_BIST_SEL, ALL, 0x00000001) &&
+	MR(dev, TVW_VBIST_RESET, 0xfffffffe, 0) &&
+	MR(dev, TVW_RESAMP0_CLAMP_CONTROL, 0xfffffffe, 0x00000010) &&
+	MR(dev, TVW_DRS_CONTROL, ALL, 0x00168000) &&
+	WR(dev, TVW_CLOCK_CONTROL_0, 0x00dfda37) &&
+	WR(dev, TVW_CLOCK_CONTROL_1, 0x50070155) &&
+	WR(dev, 0x08a4, 0x0203f03f) &&
+	WU(dev, 0xf00a, 0x50) &&
+	WU(dev, 0xf009, 0x9c) &&
+	WU(dev, 0xf008, 0x77) &&
+	WU(dev, 0xf05d, 0xff) &&
+
+	// XXX these writes get audio working! XXX
+	// look at FEAW specifically, FEVW alone didn't get audio
+	WR(dev, TVW_TBC_CBCR_DELAY, 0x00000000) &&
+	WR(dev, TVW_TBC_OFFSET_SKEW, 0x00000000) &&
+	WR(dev, TVW_TBC_PAUSE, 0xf8000000) &&
+	WR(dev, TVW_TBC_PLL_OVER_GAIN, 0x00007d78) &&
+	WR(dev, TVW_TBC_LINE_BUF_FREQ_DIF, 0x00000000) &&
+	WR(dev, TVW_TBC_LINE_BUF_READ_DISTANCE, 0x00000000) &&
+	XR(dev, TVW_VBW_SETTINGS, ALL, 0x00100000) && // unknown values
+	MR(dev, TVW_FEVW_WIDTH, ALL, 0) && // unknown values ... 0x02D0 == 720
+	MR(dev, TVW_FEVW_VBI_HEIGHT, ALL, 0x00120012) && // 18, 18
+	MR(dev, TVW_FEVW_VBI_START_LINE, ALL, 0x00010001) && // 1, 1
+	XR(dev, TVW_RVR_ENGINE_STATUS, ALL, 0x01000000) && // unknown values
+	XR(dev, TVW_VBW_LUM_DDT_FLAGS, ALL, 0) && // unknown values
+	XR(dev, TVW_VBW_VBI_DDT_FLAGS, ALL, 0) && // unknown values
+	WR(dev, TVW_RVR_ADV_ON_OVF, 0x00000002) &&
+	// copy FEVW values to RVR?
+	WR(dev, TVW_RVR_WIDTH, 0x02d002d0) &&
+	WR(dev, TVW_RVR_HEIGHT, 0x00000120) && // 288
+	WR(dev, TVW_RVR_WIDTH, 0x02d002d0) &&
+	WR(dev, TVW_RVR_VBI_HEIGHT, 0x00120012) && // 18, 18
+	XR(dev, TVW_FW_VMOW_STATUS, ALL, 0x00000000) && // unknown values
+	XR(dev, TVW_FW_VMW_STATUS, ALL, 0x00000000) && // unknown values
+
+	WR(dev, TVW_FEVW_COMMAND, 0x03000000) &&
+	XR(dev, TVW_FEVW_ENGINE_STATUS, ALL, 0x01000000) && // unknown values
+	WR(dev, TVW_FEVW_COMMAND, 0x00000000) &&
+
+	XR(dev, TVW_VBW_SETTINGS, ALL, 0x00100000) && // unknown values
+	MR(dev, TVW_RAR_SETTINGS, ALL, 0x00000080) &&
+	//MR(dev, TVW_USC_CTL, ALL, 0) && // unknown values
+	WR(dev, TVW_USC_ANC_WIDTH, 0x00100000) && // 16, 0
+	MR(dev, TVW_USC_DEBUG_CTL, ALL, 0x40000000) &&
+	MR(dev, TVW_USC_CTL, ALL, 0x10000000) &&
+	XR(dev, TVW_RAR_ENGINE_STATUS, ALL, 0x01000000) && // unknown values
+	XR(dev, TVW_FEAW_CYCLE_CNT, ALL, 0x00000000) && // unknown values
+	XR(dev, TVW_FEAW_WRITE_PTR, ALL, 0x00000000) && // unknown values
+	XR(dev, TVW_FEAW_CYCLE_CNT, ALL, 0x00000000) && // unknown values
+	WR(dev, TVW_FW_AMOW_STATUS, 0x00000000) &&
+	WR(dev, TVW_FW_AMW_STATUS, 0x00000000) &&
+	WR(dev, TVW_RAR_COMMAND, 0x00000000) &&
+
+	WR(dev, TVW_FEAW_COMMAND, 0x03000000) &&
+	XR(dev, TVW_FEAW_ENGINE_STATUS, ALL, 0x01000000) && // unknown values
+	WR(dev, TVW_FEAW_COMMAND, 0x00000000) &&
+
+	true;
 
 	*out_dev = dev;
 
@@ -6083,28 +2579,6 @@ tvwsdr_close(tvwsdr_dev_t *dev) {
 	return 0;
 }
 
-uint32_t
-tvwsdr_get_center_freq(tvwsdr_dev_t *dev) {
-	if (NULL == dev) {
-		return 0;
-	}
-
-	return dev->freq;
-}
-
-int
-tvwsdr_set_center_freq(tvwsdr_dev_t *dev, uint32_t freq) {
-	if (NULL == dev) {
-		return -1;
-	}
-
-	if (tda18271_tune(&dev->fe, &(((struct tda18271_priv *)dev->fe.tuner_priv)->std.qam_8), freq, 8000000)) {
-		return -1;
-	}
-
-	return 0;
-}
-
 void
 tvwsdr_deframe_isoch_data(tvwsdr_dev_t *dev, unsigned char *data, int len) {
 	unsigned char *ptr;
@@ -6133,15 +2607,15 @@ tvwsdr_deframe_isoch_data(tvwsdr_dev_t *dev, unsigned char *data, int len) {
 			break;
 		}
 
-		dev->cb(dev->work_buf + tmpoffset, frame_length, dev->cb_ctx);
+		dev->cb(ptr, frame_length, dev->cb_ctx);
 
 #if 0
 		/* print header (footer?) */
-		printf("%4i: ", frame_length);
+		fprintf(stderr, "%4i: ", frame_length);
 		for(j = 0; j < 32; j++) {
-			printf("%02x ", *(ptr + j));
+			fprintf(stderr, "%02x ", *(ptr + j));
 		}
-		printf("\n");
+		fprintf(stderr, "\n");
 #endif
 
 		tmpoffset += frame_length + 32;
@@ -6167,7 +2641,9 @@ tvwsdr_xfer_cb(struct libusb_transfer *xfer) {
 			pkt = libusb_get_iso_packet_buffer_simple(xfer, i);
 			actual_length = xfer->iso_packet_desc[i].actual_length;
 
-			tvwsdr_deframe_isoch_data(dev, pkt, actual_length);
+			if (actual_length > 0) {
+				tvwsdr_deframe_isoch_data(dev, pkt, actual_length);
+			}
 		}
 	}
 
@@ -6226,11 +2702,5 @@ tvwsdr_read_async(tvwsdr_dev_t *dev, tvwsdr_read_async_cb_t cb, void *ctx) {
 int
 tvwsdr_cancel_async(tvwsdr_dev_t *dev) {
 	/* FIXME */
-	return 0;
-}
-
-int
-tvwsdr_set_sample_rate(tvwsdr_dev_t *dev, uint32_t rate) {
-	/* Currently a stub function until more is known about the T507. */
 	return 0;
 }

@@ -1191,7 +1191,7 @@ fail:
 /*---------------------------------------------------------------------*/
 
 static struct tda18271_std_map tda18271c1_std_map = {
-	.fm_radio = { .if_freq = 1250, .fm_rfn = 1, .agc_mode = 3, .std = 0,
+	.fm_radio = { .if_freq = 1250, .fm_rfn = 0, .agc_mode = 3, .std = 0, // XXX fn_rfn was 1
 		      .if_lvl = 0, .rfagc_top = 0x2c, }, /* EP3[4:0] 0x18 */
 	.atv_b    = { .if_freq = 6750, .fm_rfn = 0, .agc_mode = 1, .std = 6,
 		      .if_lvl = 0, .rfagc_top = 0x2c, }, /* EP3[4:0] 0x0e */
@@ -1224,7 +1224,7 @@ static struct tda18271_std_map tda18271c1_std_map = {
 };
 
 static struct tda18271_std_map tda18271c2_std_map = {
-	.fm_radio = { .if_freq = 1250, .fm_rfn = 1, .agc_mode = 3, .std = 0,
+	.fm_radio = { .if_freq = 1250, .fm_rfn = 0, .agc_mode = 3, .std = 0, // XXX fn_rfn was 1
 		      .if_lvl = 0, .rfagc_top = 0x2c, }, /* EP3[4:0] 0x18 */
 	.atv_b    = { .if_freq = 6000, .fm_rfn = 0, .agc_mode = 1, .std = 5,
 		      .if_lvl = 0, .rfagc_top = 0x2c, }, /* EP3[4:0] 0x0d */

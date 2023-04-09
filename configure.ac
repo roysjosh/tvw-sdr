@@ -1,4 +1,4 @@
-AC_INIT([tvw-sdr], [2012.08.16], [roysjosh@gmail.com])
+AC_INIT([tvw-sdr], [2023.04.08], [roysjosh@gmail.com])
 AC_PREREQ([2.61])
 AM_INIT_AUTOMAKE([foreign dist-bzip2])
 LT_INIT([disable-static])

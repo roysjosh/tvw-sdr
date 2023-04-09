@@ -23,18 +23,17 @@
 #include <errno.h>
 #include <linux/dvb/frontend.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-#include "tvw-sdr.h"
-
-#define msleep tvwsdr_msleep
 #define udelay usleep
 
-#define pr_info printf
-#define printk printf
+#define pr_info warnx
+#define printk warnx
 #define KERN_EMERG	"<0>"
 #define KERN_ALERT	"<1>"
 #define KERN_CRIT	"<2>"
@@ -50,9 +49,6 @@ typedef int32_t  s32;
 typedef uint8_t  u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
-
-#define false 0
-#define true (!false)
 
 struct dvb_frontend {
 	void *tuner_priv;

@@ -18,7 +18,7 @@ missing
 stamp-h1
 
 # binaries
-src/tvw_sdr
+src/tvw_fm
 
 # firmware
 src/CTRL.bin

@@ -26,12 +26,38 @@ extern "C" {
 
 #include <stdint.h>
 
-typedef struct tvwsdr_dev tvwsdr_dev_t;
+#include <libusb.h>
+
+#include "compat.h"
+#include "tda18271.h"
+#include "tda18271-priv.h"
+
+/*
+ * Callback function type for USB ISOCH data handling.
+ */
+typedef void(*tvwsdr_read_async_cb_t)(unsigned char *buf, unsigned int len, void *ctx);
+
+typedef struct tvwsdr_dev {
+	/* libusb info */
+	libusb_context *ctx;
+	struct libusb_device_handle *devh;
+	struct libusb_transfer **xfer;
+	unsigned char **xfer_buf;
+	tvwsdr_read_async_cb_t cb;
+	void *cb_ctx;
+	/* tuner info */
+	struct dvb_frontend fe;
+	/* saved configuration information */
+	uint32_t freq;
+	/* isoch work buffer */
+	unsigned char work_buf[8*1024];
+	unsigned int work_buflen;
+} tvwsdr_dev_t;
 
 /*
  * Acquire a device handle.
  */
-int tvwsdr_open(tvwsdr_dev_t **dev);
+int tvwsdr_open(tvwsdr_dev_t **dev, uint32_t freq);
 
 /*
  * Close and free a device handle.
@@ -39,29 +65,9 @@ int tvwsdr_open(tvwsdr_dev_t **dev);
 int tvwsdr_close(tvwsdr_dev_t *dev);
 
 /*
- * Get the currently tuned frequency.
- */
-uint32_t tvwsdr_get_center_freq(tvwsdr_dev_t *dev);
-
-/*
- * Set the currently tuned frequency.
- */
-int tvwsdr_set_center_freq(tvwsdr_dev_t *dev, uint32_t freq);
-
-/*
- * Callback function type for USB ISOCH data handling.
- */
-typedef void(*tvwsdr_read_async_cb_t)(unsigned char *buf, unsigned int len, void *ctx);
-
-/*
  * Initiate USB ISOCH data transfers.
  */
 int tvwsdr_read_async(tvwsdr_dev_t *dev, tvwsdr_read_async_cb_t cb, void *ctx);
-
-/*
- * Set device sample rate.
- */
-int tvwsdr_set_sample_rate(tvwsdr_dev_t *dev, uint32_t rate);
 
 #ifdef __cplusplus
 }
