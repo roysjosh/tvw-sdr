@@ -721,7 +721,7 @@ tvw_finish_init_tvw(tvwsdr_dev_t *dev) {
 			MR(dev, TVW_GPIO_OUTPUT_VALUE, ALL, 0x0000000c) &&
 
 			//WR(dev, TVW_SPIC_PRESCALE, 0x0000000a) &&
-			WR(dev, TVW_SPIC_PRESCALE, 0x00000001) &&
+			//WR(dev, TVW_SPIC_PRESCALE, 0x00000001) &&
 
 			true;
 }
@@ -2050,7 +2050,35 @@ tvwsdr_open(tvwsdr_dev_t **out_dev, uint32_t freq) {
 		goto err;
 	}
 
-	// skip SPI
+#if 0
+	// SPI
+	WR(dev, TVW_SPIC_PRESCALE, 0x0000000a) &&
+	XR(dev, TVW_SPIC_STATUS, 0x00000001, 0x00000000) &&
+	WR(dev, TVW_SPIC_INSTR_ADDR, 0x05000000) &&
+	XR(dev, TVW_SPIC_STATUS, 0x00000001, 0x00000000) &&
+	true;
+
+	// original offset & amount
+	//uint16_t addr = 0xfc00, count = 512 >> 3;
+	// entire 512kbit flash
+	uint16_t addr = 0x0000, count = 65536 >> 3;
+	uint32_t val0, val1;
+	for (uint16_t off = 0; off < count; off++) {
+		WR(dev, TVW_SPIC_INSTR_ADDR, 0xff000000 | addr) &&
+		XR(dev, TVW_SPIC_STATUS, 0x00000001, 0x00000000) &&
+		RR(dev, TVW_SPIC_RDATA0, &val0) &&
+		RR(dev, TVW_SPIC_RDATA1, &val1) &&
+		true;
+		if (val0 != 0xffffffff && val1 != 0xffffffff) {
+			fprintf(stderr, "%04x: %08x %08x\n", addr + (off << 3), be32toh(val0), be32toh(val1));
+		}
+	}
+
+	WR(dev, TVW_SPIC_INSTR_ADDR, 0x05000000) &&
+	XR(dev, TVW_SPIC_STATUS, 0x00000001, 0x00000000) &&
+	WR(dev, TVW_SPIC_PRESCALE, 0x00000001) &&
+	true;
+#endif
 
 	/* switch to bAlternateSetting 1 */
 	if (libusb_set_interface_alt_setting(dev->devh, 0, 1)) {
